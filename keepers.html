@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport"
+            content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+    <link href="https://fonts.googleapis.com/css?family=Kurale" rel="stylesheet">
+    <link rel="shortcut icon" type="image/png" href="https://keepers.mobi/images/favicon.png" />
+    <meta property="og:title" content="Хранители Карт и Магии">
+    <meta property="og:image" content="https://keepers.mobi/images/og_image_v3.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <title>Хранители карт и магии</title>
+</head>
+
+<body style="background: #000; margin: 0 auto; font-size: 14px; color: #fff; font-family: Arial,sans-serif; max-width: 480px; -moz-user-select: none; -webkit-user-select: none;  user-select: none; overflow-y: hidden;">
+<div id="loading0" style="width: 300px;height:200px;position:absolute;top:0;bottom:0;left:0;right:0;margin:auto;">
+    <div id="loading_spinner"
+            style="position:relative;transform-origin:center center;width:60px;height:60px;background: url(https://keepers.mobi/images/loading.png) 0px -53px no-repeat;margin: auto;margin-top:20px;transform: rotate(301deg);"></div>
+    <div class="loading"
+            style="background: url(https://keepers.mobi/images/loading.png) center top no-repeat; width:300px;height: 38px; margin: auto; position: relative; margin-top: 20px;">
+        <div class="loading_prg_w" style="position: absolute; width: 248px; height: 15px; left: 26px; top: 11px;">
+            <div id="loading_prg"
+                    style="position: absolute;  width: 248px;  height: 15px; background: url(https://keepers.mobi/images/loading.png) left -38px; width: 0%;">
+            </div>
+        </div>
+    </div>
+    <div id="loading_advice" style="position:relative;width:300px;text-align:center;margin:auto;margin-top:20px;">
+        Инициализация соединения
+    </div>
+</div>
+
+<script>
+    var VK_ODR = 0;
+    var VK_ODR_SERVER_URL = 'https://keepers.mobi';
+    var VK_ODR_SERVER_WS_URL = 'https://keepers.mobi:444';
+    var VK_ODR_CORS_SERVER = 'vkcors://keepers.mobi';
+
+    function getVK_ODR_Path(path) {
+        if (VK_ODR) {
+            if (path.includes('.css') || path.includes('.js')) {
+                if (path[0] === '/') path = '.' + path;
+                return path;
+            }
+            if (path[0] === '/') {
+                return VK_ODR_SERVER_URL + path;
+            }
+            return VK_ODR_SERVER_URL + '/' + path;
+        }
+        return path;
+    }
+
+    function showVK_ODR_PaymentPopup() {
+        let p = app.Popups.createPopup({
+            header: {value: 'Покупка'},
+        });
+
+        p.els.popup.style.opacity = 0;
+        p.els.popup.style.width = '350px';
+        p.els.popup.style.height = '200px';
+        p.els.popup.style.top = '80px';
+        p.els.popup.style.left = '0px';
+
+        p.els.popup.appendChild(app.Utils.createDIV({
+            class: 'header',
+            style: {
+                left: '50px',
+                top: '-25px'
+            },
+            text: 'Покупка'
+        }));
+
+        let el = app.Utils.createDIV({
+            style: 'width: 370px; margin: 20px',
+            html: 'К сожалению, в приложении VK на iOS покупки<br> кристаллов и акций невозможны.<br><br>Вы можете совершить покупку через <br>веб-версию Вконтакте.'
+        });
+        el.appendChild(app.Utils.createA({
+            href: 'https://m.vk.com/games/vk.keepers.mobi',
+            class: 'btn_g btn_gs_c',
+            style: 'left: 57px; top: 140px',
+            text: 'Перейти'
+        }));
+        el.appendChild(app.Utils.createA({
+            class: 'btn_g btn_gs',
+            style: 'right: 57px; top: 140px',
+            text: 'Отмена'
+        }, () => {
+            app.Popups.removePopup(p);
+        }));
+        p.els.popup.appendChild(el);
+
+        app.Popups.add(p);
+
+        app.Popups.centerPopup(p, () => {
+            return app.LAYOUT.convert0(p.els.popup.getBoundingClientRect().height);
+        }, (top, availableHeight) => {
+            p.els.popup.style.opacity = 1;
+            p.els.popup.style.top = top + 'px';
+        });
+    }
+</script>
+
+<script>
+
+            if (location.protocol === 'http:') {
+                location = 'https' + location.href.substr(4);
+            }
+
+    var _getRequestParameters = function () {
+        const r = {};
+        const search = location.search;
+        if (search.length > 0) {
+            const s1 = search.substring(1, search.length).split('&');
+            for (let i = 0; i < s1.length; i++) {
+                const param = s1[i];
+                const eqIdx = param.indexOf('=');
+                const key = param.substring(0, eqIdx);
+                const value = param.substring(eqIdx + 1);
+                r[decodeURIComponent(key)] = decodeURIComponent(value);
+            }
+        }
+        return r;
+    };
+
+    //let params = _getRequestParameters();
+    //window._isMeOk = params.logged_user_id && params.logged_user_id === '';
+    //window._isMeVK = params.viewer_id && params.viewer_id === '';
+
+    if (window._isMeVK) {
+        window.addEventListener('error', function (event) {
+        });
+    }
+</script>
+
+<script type="text/javascript">
+    var Progress = function (spinner, progress, advice) {
+        this.deg = 0;
+        this.progress = 0;
+        this.total = 0;
+        this.el = {};
+        this.el.spinner = spinner;
+        this.el.progress = progress;
+        this.el.advice = advice;
+        this.done = 0;
+    };
+    Progress.prototype.set = function (progress, total, text) {
+        this.progress = progress;
+        this.total = total;
+        if (text) this.setText(text);
+    };
+    Progress.prototype.inc = function (value) {
+        this.progress += value ? value : 1;
+    };
+    Progress.prototype.setText = function (text) {
+        this.el.advice.innerText = text;
+    };
+    Progress.prototype.isComplete = function () {
+        return this.progress >= this.total;
+    };
+    Progress.prototype.update = function () {
+        if (this.deg > 300 && this.deg < 370) {
+            this.deg += 3;
+        } else if (this.deg > 370) {
+            this.deg = this.deg - 370;
+        } else {
+            this.deg += 7;
+        }
+    };
+    Progress.prototype.render = function () {
+        this.el.spinner.style.transform = 'rotate(' + this.deg + 'deg)';
+
+        var p = this.progress / this.total * 100;
+        p = Math.min(p, 100);
+        this.el.progress.style.width = p + '%';
+    };
+
+    var progress = new Progress(document.getElementById('loading_spinner'), document.getElementById('loading_prg'), document.getElementById('loading_advice'));
+
+    function update() {
+        progress.update();
+        progress.render();
+        if (!progress.done) {
+            requestAnimationFrame(update);
+        }
+    }
+
+    progress.setText('Загрузка ресурсов');
+    update();
+</script>
+
+<script>
+    let _error = console.error;
+    console.error = function () {
+        if (app && app.Network) {
+            try {
+                let info = new Error().stack;
+                if (app && app.Network) {
+                    app.Network.command({
+                        cmd: 'Error',
+                        error: info
+                    });
+                }
+            } catch (e) {
+            }
+        }
+        return _error.apply(console, arguments);
+    };
+</script>
+
+<script>
+    function prepareAuthCommand() {
+        let cmd = {};
+
+        let params = _getRequestParameters();
+        let partner;
+
+        if (VK_ODR || (params.partner === 'vk' || location.hostname === 'vk.keepers.mobi' /*|| location.hostname === 'test.vk.keepers.mobi'*/)) {
+            partner = {};
+            partner.t = 'VK';
+            partner.uID = params.viewer_id;
+            partner.access_token = params.access_token;
+            partner.auth_key = params.auth_key;
+            partner.referrer = params.referrer;
+            if (params.hash) {
+                partner.hash = params.hash;
+            }
+            if (params.partner === 'vk') {
+                partner.iframe = 1;
+            } else {
+                partner.mobile = 1;
+            }
+            cmd.partner = partner;
+
+        } else if (params.partner === 'ok' || location.hostname === 'od.keepers.mobi') {
+            partner = {};
+            partner.t = 'OK';
+            partner.uID = params.logged_user_id;
+            partner.sig = params.sig;
+            partner.api_server = params.api_server;
+            partner.auth_sig = params.auth_sig;
+            partner.session_key = params.session_key;
+            partner.session_secret_key = params.session_secret_key;
+            partner.custom_args = params.custom_args;
+            cmd.partner = partner;
+
+        } else if (params.partner === 'spaces' || location.hostname === 'spaces.keepers.mobi') {
+            partner = {};
+            partner.t = 'SPACES';
+            partner.uID = params.login;
+            partner.app_sid = params.app_sid;
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'mailru.keepers.mobi') {
+            partner = {};
+            partner.t = 'MAILRU';
+            partner.uID = app.Mailru.user.uid;
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'mmr.keepers.mobi') {
+            partner = {};
+            partner.t = 'MMR';
+            partner.uID = params.vid;
+            partner.params = params;
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'exe.keepers.mobi') {
+            partner = {};
+            partner.t = 'EXERU';
+            partner.uID = params.exe_user;
+            partner.auth_key = params.auth_key;
+            if (params.request_key) partner.request_key = params.request_key;
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'fs.keepers.mobi') {
+            partner = {};
+            partner.t = 'FS';
+            partner.uID = params.viewerId;
+            partner.auth_key = params.authKey;
+            if (params.optParams) {
+                partner.custom_args = params.optParams;
+            }
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'gamepad.keepers.mobi') {
+            partner = {};
+            partner.t = 'GAME_PAD';
+            partner.uID = params.user_id;
+            partner.user_key = params.user_key;
+            partner.api_url = params.api_url;
+            partner.auth_token = params.auth_token;
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'anwap.keepers.mobi') {
+            cmd.channel = 39726;
+
+        } else if (params.partner === 'rbk') {
+            partner = {};
+            partner.t = 'RBK';
+            partner.uID = partner.logged_user_id = params.logged_user_id;
+            partner.api_server = params.api_server;
+            partner.session_key = params.session_key;
+            partner.auth_sig = params.auth_sig;
+            partner.sig = params.sig;
+            partner.application_id = params.application_id;
+            partner.lang = params.lang;
+            partner.partner = params.partner;
+            if (params.promo) {
+                partner.promo = params.promo;
+            }
+            cmd.partner = partner;
+
+        } else if (params.partner === 'ag' || location.hostname === 'ag.keepers.mobi') {
+            const guest = params.guest === 'true'
+                ? true
+                : params.guest === 'false'
+                    ? false
+                    : !!params.guest;
+            console.log('guest', guest);
+
+            cmd.partner = {
+                t: 'AG',
+                uID: params.player_id,
+                game_sid: params.game_sid,
+                app_id: params.app_id,
+                auth_key: params.auth_key,
+                guest: guest
+            };
+
+        } else if (location.hostname === 'test.beeline.keepers.mobi' || location.hostname === 'beeline.keepers.mobi') {
+            partner = {
+                t: 'BEELINE',
+                auth_token: params.auth
+            };
+            cmd.partner = partner;
+
+        } else if (location.hostname === 'playdeck.keepers.mobi') {
+            partner = {
+                t: 'PLAYDECK',
+                token: window.playdeckUser.token
+            };
+            cmd.partner = partner;
+
+        } else if (params.channelId) {
+            if (params.channelId === 'mdragons') {
+                cmd.channel = {
+                    id: params.channelId,
+                    u: Number(params.u),
+                    l: Number(params.l),
+                    sig: params.sig
+                };
+            } else {
+                cmd.channel = Number(params.channelId.trim());
+            }
+
+        } else if (params.r) {
+            cmd.referrer = Number(params.r.trim());
+        }
+
+        if (params.google) {
+            cmd.google = 1;
+            if (typeof google !== 'undefined' && google.getDeviceID) {
+                cmd.deviceID = google.getDeviceID();
+            }
+        }
+
+        return cmd;
+    }
+
+    function handleErrors() {
+        window.onerror = function (msg, url, line, col, error) {
+            if (typeof app !== 'undefined') {
+                if (app && app.Utils) {
+                    let show = true;
+                    if (app.Model && window._isMeVK) {
+                    } else {
+                        if (location.hostname === 'od.keepers.mobi' || location.hostname === 'vk.keepers.mobi') {
+                            show = false;
+                        }
+                    }
+                    if (show) {
+                        app.Utils.showInfo('Произошла ошибка! Попробуйте сбросить кеш, и обновить игру!', {
+                            top: 200,
+                            animation: 0,
+                            duration: 5
+                        });
+                    }
+                }
+            }
+
+            let info;
+            if (error && error.stack) {
+                info = error.stack;
+            } else {
+                info = msg + ' Script: ' + url + ' Line: ' + line + ' Column: ' + col + ' StackTrace: ' + error;
+            }
+
+            info += ' ' + navigator.userAgent;
+
+            if (typeof app !== 'undefined') {
+                if (app && app.Network && app.Network.isConnected()) {
+                    app.Network.command({
+                        cmd: 'Error',
+                        error: info
+                    });
+                }
+            }
+
+            return false;
+        };
+        window.onunhandledrejection = function (event) {
+            console.log('onunhandledrejection');
+            if (event
+                && event.detail
+                && event.detail.reason
+                && event.detail.reason.stack) {
+
+                let info = event.detail.reason.stack;
+
+                console.log(info);
+
+                if (typeof app !== 'undefined') {
+                    if (app && app.Network) {
+                        app.Network.command({
+                            cmd: 'Error',
+                            error: info
+                        });
+                    }
+                }
+            }
+        };
+    }
+
+    function loadJS0(path, onLoad) {
+        let el = document.createElement('script');
+        el.type = 'text/javascript';
+        el.onload = function () {
+            if (onLoad) onLoad();
+        };
+        el.async = true;
+        el.src = path;
+        document.getElementsByTagName('head')[0].appendChild(el);
+    }
+
+    handleErrors();
+
+</script>
+
+<script type="text/javascript">
+    var HELPER = {
+        isTouchAvailable: function () {
+            if (('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch) return true;
+            if (navigator.MaxTouchPoints > 0 || navigator.msMaxTouchPoints > 0) return true;
+
+            // include the 'heartz' as a way to have a non matching MQ to help terminate the join
+            // https://git.io/vznFH
+            let mq = function (query) {
+                return window.matchMedia(query).matches;
+            };
+            let prefixes = ' -webkit- -moz- -o- -ms- '.split(' ');
+            let query = ['(', prefixes.join('touch-enabled),('), 'heartz', ')'].join('');
+            return mq(query);
+        }
+    };
+
+    if (HELPER.isTouchAvailable()) {
+        HELPER.tmp = {};
+        HELPER.clear = function () {
+            document.removeEventListener('touchmove', HELPER.tmp.touchmove);
+            delete HELPER.touchmove;
+        };
+        document.addEventListener('touchmove', HELPER.tmp.touchmove = function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }, {passive: false});
+    }
+</script>
+
+<script type="text/javascript">
+    progress.set(0, 7, 'Загрузка ресурсов.');
+    let v = '123.' + Math.random();
+    loadJS0(getVK_ODR_Path('/js/app.js?v=' + v), function () {
+        progress.progress++;
+
+        app.GAME_STATE = 0;
+        var onLoad = function () {
+            progress.progress++;
+            if (progress.isComplete()) {
+                app.updateLayout();
+
+                //
+                // for VK
+                //
+                if (app.LAYOUT.VK_MOBILE) {
+                    app.CSS.addInlineStyles('.brd_block .close {top: -18px !important; right:5px !important; transform: scale(1.25);} .popup .close {top: -18px !important; transform: scale(1.25);}');
+                }
+
+                progress.set(0, app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR ? 3 : 2, 'Загрузка ресурсов..');
+
+                onLoad = function () {
+                    progress.progress++;
+                    if (progress.isComplete()) {
+
+                        const internalLoad = () => {
+                            app.EventDispatcher.addEventListener('network connected', function () {
+                                let cmd = prepareAuthCommand();
+                                if (app.Model.user) {
+                                    cmd.cmd = 'Reconnect';
+                                } else {
+                                    cmd.cmd = 'Auth';
+                                }
+                                if (cmd.cmd === 'Auth') {
+                                    progress.set(0, 1, 'Инициализация соединения');
+                                    app.Network.command(cmd, function (data) {
+
+                                        console.log(data);
+
+                                        progress.progress++;
+
+                                        app.loadJS('TimeUtil', function () {
+                                            app.TimeUtil.init(data.cfg.server);
+
+                                            //
+                                            // load all js
+                                            //
+                                            progress.set(0, app.JS.list.length, 'Загрузка ресурсов...');
+
+                                            app.loadJSAll(
+                                                function () {
+                                                    progress.progress++;
+                                                }, function () {
+                                                    //
+                                                    // load base images
+                                                    //
+                                                    var list = [];
+                                                    var tutorial = data.user.tutorial;
+                                                    var entry = tutorial.l[tutorial.l.length - 1];
+                                                    if (entry.c !== 1) {
+                                                        if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
+                                                            list.push(getVK_ODR_Path('/images/main_bg_tutor_750_750.jpg'));
+                                                        } else {
+                                                            list.push(getVK_ODR_Path('/images/main_bg_tutor_640_1200.jpg'));
+                                                        }
+                                                        list.push(getVK_ODR_Path('/images/character_f.png'));
+                                                        list.push(getVK_ODR_Path('/images/girl.png'));
+                                                        list.push(getVK_ODR_Path('/images/character_an.png'));
+                                                        list.push(getVK_ODR_Path('/images/avatars/male/5.jpg'));
+                                                    }
+                                                    if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
+                                                        list.push(getVK_ODR_Path('/images/main_bg_750_750.jpg'));
+                                                    } else {
+                                                        list.push(getVK_ODR_Path('/images/main_bg_640_1200.jpg'));
+                                                    }
+                                                    list.push(getVK_ODR_Path('/images/sprite_decor.png'));
+                                                    list.push(getVK_ODR_Path('/images/sprite_main.png'));
+                                                    progress.set(0, list.length, 'Загрузка ресурсов....');
+
+                                                    app.loadIMGs(list,
+                                                        function () {
+                                                            progress.progress++;
+                                                        }, function () {
+                                                            var loading0 = app.Utils.el('loading0');
+                                                            if (loading0) loading0.parentNode.removeChild(loading0);
+                                                            progress.done = 1;
+
+                                                            app.World.createMain();
+
+                                                            app.Model.cfg = data.cfg;
+                                                            app.Model.cfg.dice = {
+                                                                type: {
+                                                                    F: 'F',
+                                                                    N: 'N',
+                                                                    W: 'W',
+                                                                    HIT: 'HIT'
+                                                                }
+                                                            };
+                                                            app.Model.user = data.user;
+
+                                                            if (cmd.partner) {
+                                                                if (cmd.partner.t === 'VK') {
+                                                                    app.Model.user.partner.access_token = cmd.partner.access_token;
+                                                                    app.Model.user.partner.uID = cmd.partner.uID;
+                                                                    if (cmd.partner.iframe) app.Model.user.partner.iframe = 1;
+                                                                    if (cmd.partner.mobile) app.Model.user.partner.mobile = 1;
+                                                                }
+                                                            }
+
+                                                            // TODO: SPACES
+                                                            if (app.UserUtil.isSpaces()) {
+                                                                var _def_header = '<div style="background:#aec6dc;border:1px solid #abbefb;color:black;margin:0px;padding:1px"><a href="http://spcs.me/" style="color:black">Spaces</a><div style="float:right;"></div></div>';
+                                                                var _def_footer = '<div style="background:#aec6dc;border:1px solid #abbefb;color:black;margin:0px;padding:1px"><a href="http://spcs.me/" style="color:black">Spaces</a></div>';
+
+                                                                var header = app.Utils.createDIV({html: _def_header});
+                                                                header = header.firstChild;
+                                                                header.style.zIndex = 1000000;
+                                                                header.style.height = '20px';
+                                                                document.body.insertBefore(header, document.body.firstChild);
+
+                                                                var footer = app.Utils.createDIV({html: _def_footer});
+                                                                footer = footer.firstChild;
+                                                                footer.style.position = 'relative';
+                                                                footer.style.height = '20px';
+                                                                footer.style.zIndex = 1000000;
+                                                                app.Utils.el('main').parentNode.appendChild(footer);
+
+                                                                app.Utils._header_offset = 24;
+                                                                app.Utils._footer_offset = 24;
+
+                                                                var h = app.Utils.withOffsets(0);
+                                                                footer.style.top = app.LAYOUT.h - h + 'px';
+
+                                                                app.Network.command({cmd: 'SpacesGetWidgets'}, function (data) {
+                                                                    if (data.error) {
+                                                                    } else {
+                                                                        if (data.result) {
+                                                                            var result = JSON.parse(data.result);
+                                                                            if (app.Utils.isArray(result)) {
+                                                                                var e;
+                                                                                try {
+                                                                                    e = app.Utils.createDIV({html: app.Utils.b64DecodeUnicode(result[0].content)});
+                                                                                } catch (e) {
+                                                                                    app.Network.command({
+                                                                                        cmd: 'Error',
+                                                                                        result: result
+                                                                                    });
+                                                                                    throw e;
+                                                                                }
+                                                                                e = e.firstChild;
+                                                                                header.parentNode.replaceChild(e, header);
+                                                                                header = e;
+                                                                                header.style.zIndex = 1000000;
+                                                                                header.style.height = '20px';
+
+                                                                                let h;
+
+                                                                                // верхняя панель может быть временно скрыта
+                                                                                h = app.LAYOUT.convert0(header.getBoundingClientRect().height);
+                                                                                app.Utils._header_offset = h === 0 ? 0 : 24;
+
+                                                                                e = app.Utils.createDIV({html: app.Utils.b64DecodeUnicode(result[1].content)});
+                                                                                e = e.firstChild;
+                                                                                footer.parentNode.replaceChild(e, footer);
+                                                                                footer = e;
+                                                                                footer.style.position = 'relative';
+                                                                                footer.style.height = '20px';
+                                                                                footer.style.zIndex = 1000000;
+
+                                                                                h = app.Utils.withOffsets(0);
+                                                                                footer.style.top = app.LAYOUT.h - h + 'px';
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+
+                                                            app.Model.init();
+                                                            app.Game.init();
+                                                            app.GAME_STATE = 1;
+                                                            app.World.loop();
+
+                                                            if (app.SoundManager.initExt() !== -1) {
+                                                                app.SoundManager.load(['click'], null, null);
+                                                            }
+
+                                                            app.onResize();
+
+                                                            //
+                                                            // TODO:
+                                                            //
+                                                            if (location.hash && location.hash === '#bank/sms/ua') {
+                                                                TweenMax.delayedCall(0.5, function () {
+                                                                    if (app.Model) {
+                                                                        app.Model.user.sms_country = 'ua';
+                                                                        app.MainPage.showSMSCountry();
+                                                                    }
+                                                                });
+                                                            }
+                                                            if (location.hash && location.hash === '#agreement') {
+                                                                app.loadJS1('Agreement', function () {
+                                                                    app.Agreement.create1();
+                                                                });
+                                                            }
+                                                            if (location.hash && location.hash === '#rules') {
+                                                                app.loadJS1('Agreement', function () {
+                                                                    app.Agreement.create2();
+                                                                });
+                                                            }
+                                                            if (location.hash && location.hash === '#chatrules') {
+                                                                app.loadJS1('Agreement', function () {
+                                                                    app.Agreement.create4();
+                                                                });
+                                                            }
+                                                            if (location.hash && location.hash === '#privacy') {
+                                                                app.loadJS1('Agreement', function () {
+                                                                    app.Agreement.create3();
+                                                                });
+                                                            }
+
+                                                            window.onhashchange = function (event) {
+                                                                if (location.hash && location.hash === '#bank/sms/ua') {
+                                                                    if (app.Model) {
+                                                                        app.Model.user.sms_country = 'ua';
+                                                                        app.MainPage.showSMSCountry();
+                                                                    }
+                                                                }
+                                                                if (location.hash && location.hash === '#agreement') {
+                                                                    app.loadJS1('Agreement', function () {
+                                                                        app.Agreement.create1();
+                                                                    });
+                                                                }
+                                                                if (location.hash && location.hash === '#rules') {
+                                                                    app.loadJS1('Agreement', function (page) {
+                                                                        app.Agreement.create2();
+                                                                    });
+                                                                }
+                                                                if (location.hash && location.hash === '#privacy') {
+                                                                    app.loadJS1('Agreement', function () {
+                                                                        app.Agreement.create3();
+                                                                    });
+                                                                }
+                                                            };
+
+                                                            TweenMax.delayedCall(0.1, function () {
+                                                                app.Network.command({cmd: 'WorldInfo'}, function (data) {
+                                                                    if (data.error) {
+                                                                    } else {
+                                                                        let battle = data.battle;
+                                                                        if (battle) {
+                                                                            if (battle.state === 'END') {
+                                                                                if ((battle.t === 2 || battle.t === 3 || battle.t === 4 || battle.t === 8)
+                                                                                    && (battle.data === undefined || battle.data.completeProcessed !== 0)) {
+                                                                                    app.BattlePage.showContinue(data.battle);
+                                                                                }
+                                                                            } else {
+                                                                                app.BattlePage.showContinue(data.battle);
+                                                                            }
+                                                                        }
+                                                                        if (data.restart) {
+                                                                            app.MainPage.showRestart(data.restart);
+                                                                        }
+
+                                                                        if (typeof ym !== 'undefined') {
+                                                                            let goal;
+                                                                            if (app.UserUtil.isTutorialStepCompleted('d_1')) {
+                                                                                goal = 'login';
+                                                                            } else {
+                                                                                goal = 'registration';
+                                                                            }
+                                                                            ym(94302754, 'reachGoal', goal);
+                                                                        }
+
+                                                                    }
+                                                                });
+                                                            });
+
+                                                            if (HELPER.clear) {
+                                                                HELPER.clear();
+                                                            }
+
+                                                            if (app.Model.user.partner && app.Model.user.partner.t === 'RBK') {
+                                                                app.loadJS1('RBKUtil', () => {
+                                                                    app.RBKUtil.init(cmd.partner.api_server);
+                                                                });
+                                                            }
+
+                                                            if (window.playdeck) {
+                                                                app.Playdeck.setLoadingProgress(100);
+                                                            }
+                                                        });
+                                                });
+                                        });
+                                    });
+                                } else {
+                                    app.Network.command(cmd, function (data) {
+                                        if (data.error) {
+                                            app.Utils.processErrors(data.error);
+                                        } else {
+                                            app.TimeUtil.init(data.cfg.server);
+                                            app.Model.cfg = data.cfg;
+                                            app.Model.cfg.dice = {
+                                                type: {
+                                                    F: 'F',
+                                                    N: 'N',
+                                                    W: 'W',
+                                                    HIT: 'HIT'
+                                                }
+                                            };
+                                            app.Model.user = data.user;
+                                            if (cmd.partner) {
+                                                if (cmd.partner.t === 'VK') {
+                                                    app.Model.user.partner.access_token = cmd.partner.access_token;
+                                                    app.Model.user.partner.uID = cmd.partner.uID;
+                                                    if (cmd.partner.iframe) app.Model.user.partner.iframe = 1;
+                                                    if (cmd.partner.mobile) app.Model.user.partner.mobile = 1;
+                                                }
+                                            }
+
+                                            app.onResize();
+
+                                            if (data.battle && data.battle.state !== 'END') {
+                                                app.BattlePage.showContinue(data.battle);
+                                            }
+                                            if (data.restart) {
+                                                app.MainPage.showRestart(data.restart);
+                                            }
+
+                                            app.GAME_STATE = 1;
+                                        }
+                                    });
+                                }
+                            });
+                            app.EventDispatcher.addEventListener('network disconnected', function (data) {
+                                console.log('EventDispatcher :: network disconnected');
+                                app.GAME_STATE = 2;
+                                if (app.Utils.el('connection_error')) return;
+                                if (!data || typeof data.showConnectionLost === 'undefined' || data.showConnectionLost) {
+                                    app.World.showConnectionLost(data);
+                                }
+                                if (app.Utils.el('loading0')) {
+                                    let loading0 = app.Utils.el('loading0');
+                                    loading0.parentNode.removeChild(loading0);
+                                    progress.done = 1;
+                                }
+                                if (window.TweenMax) TweenMax.killAll(true, true, true, true);
+                            });
+
+                            if (app.LAYOUT.MAILRU) {
+                                app.loadJS('Mailru', function () {
+                                    app.Mailru.init();
+
+                                    let idx = app.EventDispatcher.addEventListener('MAILRU onLogin', function (data) {
+                                        app.EventDispatcher.removeEventListener('MAILRU onLogin', idx);
+                                        document.body.className = '';
+                                        document.body.style = 'background: #000; margin: 0 auto; font-size: 14px; color: #fff; font-family: Arial,sans-serif; max-width: 480px; -moz-user-select: none; -webkit-user-select: none; user-select: none; overflow-y: hidden';
+                                        app.Utils.el('loading0').style.display = '';
+                                        app.Mailru.removeLanding();
+                                        app.Mailru.user = data.user;
+                                        app.Network.init();
+                                    });
+
+                                    let start = Date.now();
+                                    let timer = setInterval(function () {
+                                        if (app.Mailru.api()) {
+                                            let params = app.Utils.getRequestParameters();
+                                            if (params.status && (params.status === 0 || params.status === '0')) {
+                                                app.Utils.el('loading0').style.display = 'none';
+                                                app.World.createMain();
+                                                app.Mailru.createLanding();
+                                            } else if (params.status && (params.status === 1 || params.status === '1')) {
+                                                app.World.createMain();
+                                                app.Mailru.createLanding();
+                                            } else {
+                                                app.Mailru.api().getLoginStatus();
+                                            }
+                                            clearInterval(timer);
+                                        } else {
+                                            if (Date.now() - start > 10000) {
+                                                clearInterval(timer);
+                                                location.reload(false);
+                                            }
+                                        }
+                                    }, 100);
+                                });
+                            } else {
+                                app.Network.init();
+                            }
+                        };
+
+                        if (window.playdeck) {
+                            const wait = () => {
+                                console.log('window.playdeckUser', window.playdeckUser);
+                                if (window.playdeckUser === undefined) {
+                                    setTimeout(wait, 100);
+                                } else {
+                                    internalLoad();
+                                }
+                            };
+                            wait();
+                        } else {
+                            internalLoad();
+                        }
+                    }
+                };
+                app.loadCSS('style', onLoad);
+                app.loadCSS('common', onLoad);
+                if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
+                    app.loadCSS('vk_750', onLoad);
+                }
+            }
+        };
+        app.loadGSAP(onLoad);
+        app.loadJS('EventDispatcher', onLoad);
+        app.loadJS('Network', onLoad);
+        app.loadJS('Utils', onLoad);
+        app.loadJS('Model', onLoad);
+        app.loadJS('World', onLoad);
+
+        if (location.hostname === 'ag.keepers.mobi') {
+            app.loadJS1('AGUtil', () => {
+                app.AGUtil.init();
+            });
+        }
+
+        if (location.hostname === 'playdeck.keepers.mobi') {
+            window.playdeck = 1;
+            app.loadJS1('Playdeck', () => {
+                console.log('Playdeck::loaded');
+                app.Playdeck.init();
+                app.Playdeck.setLoadingProgress(1);
+                app.loadEruda();
+            });
+        }
+
+        window.addEventListener('resize', app.onResize);
+    });
+</script>
+
+<!-- Rating Mail.ru counter -->
+<script type="text/javascript">
+    if (!VK_ODR) {
+        let params = _getRequestParameters();
+        if (params.google) {
+        } else {
+            var _tmr = window._tmr || (window._tmr = []);
+            _tmr.push({
+                id: '3177746',
+                type: 'pageView',
+                start: (new Date()).getTime()
+            });
+            (function (d, w, id) {
+                if (d.getElementById(id)) return;
+                let ts = d.createElement('script');
+                ts.id = id;
+                ts.type = 'text/javascript';
+                ts.async = true;
+                ts.src = 'https://top-fwz1.mail.ru/js/code.js';
+                let f = function () {
+                    let s = d.getElementsByTagName('script')[0];
+                    s.parentNode.insertBefore(ts, s);
+                };
+                if (w.opera === '[object Opera]') {
+                    d.addEventListener('DOMContentLoaded', f, false);
+                } else {
+                    f();
+                }
+            })(document, window, 'topmailru-code');
+        }
+    }
+</script>
+<!-- //Rating Mail.ru counter -->
+
+<!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function (m, e, t, r, i, k, a) {
+        m[i] = m[i] || function () {
+            (m[i].a = m[i].a || []).push(arguments);
+        };
+        m[i].l = 1 * new Date();
+        k = e.createElement(t), a = e.getElementsByTagName(t)[0], k.async = 1, k.src = r, a.parentNode.insertBefore(k, a);
+    })
+    (window, document, 'script', 'https://mc.yandex.ru/metrika/tag.js', 'ym');
+
+    ym(94302754, 'init', {
+        clickmap: true,
+        trackLinks: true,
+        accurateTrackBounce: true
+    });
+</script>
+<noscript>
+    <div><img src="https://mc.yandex.ru/watch/68190592" style="position:absolute; left:-9999px;" alt="" /></div>
+</noscript>
+<!-- /Yandex.Metrika counter -->
+</body>
+</html>
