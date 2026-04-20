@@ -11,6 +11,11 @@
     const CONFIG = {
       reactionDelayMs: 900,
       reactionJitterMs: 400,
+      /** После CARD_SELECTION клиент (BattlePage) крутит TweenMax: карты ~0.5s, подсказка delay 0.6 + fade 0.3s. */
+      cardSelectionUiReadyMs: 950,
+      cardSelectionUiReadyJitterMs: 150,
+      /** После клика по карте BattlePage показывает «В бой!» через J(.4) — чуть с запасом. */
+      cardDomConfirmDelayMs: 450,
       popupPollMs: 600,
       popupMissThreshold: 3,
     };
@@ -18,11 +23,15 @@
     const state = {
       battleActive: false,
       readyLogged: false,
-      autoEnabled: false,
+      autoEnabled: true,
       popupMisses: 0,
       currentPhase: null,
       currentPhaseSource: null,
       lastRecommendationKey: null,
+      lastAutoCardKey: null,
+      autoSelectionPendingKey: null,
+      recommendationUiWaitKey: null,
+      cardSelectionGen: 0,
       noContextLogged: false,
       powerErrorLogged: false,
       lastBattleSnapshotKey: null,
@@ -45,6 +54,11 @@
       return CONFIG.reactionDelayMs + Math.floor(Math.random() * (jitter + 1));
     }
 
+    function cardSelectionUiReadyDelay() {
+      const jitter = Math.max(0, CONFIG.cardSelectionUiReadyJitterMs);
+      return CONFIG.cardSelectionUiReadyMs + Math.floor(Math.random() * (jitter + 1));
+    }
+
     function safeGetBattlePopup() {
       try {
         if (!window.app || !app.Popups || !app.Popups.getLast) return null;
@@ -55,6 +69,73 @@
         log("safeGetBattlePopup failed:", err);
         return null;
       }
+    }
+
+    /** Прямой Network.command(BattleCardSelected) не вызывает колбэки BattlePage — UI остаётся на выборе. Дублируем шаги клиента. */
+    function listBattleCardChoiceRoots(popup) {
+      const el = popup?.scroll?.el;
+      if (!el) return [];
+      return Array.from(el.children).filter((node) => node?.classList?.contains("sh_card"));
+    }
+
+    function findBattleCardConfirmControl(popup) {
+      const root = popup?.scroll?.el;
+      if (!root) return null;
+      const links = root.querySelectorAll("a.btn_g, a.btn_gs, a");
+      for (const a of links) {
+        const t = (a.textContent || "").trim();
+        if (t === "В бой!" || t.startsWith("В бой")) return a;
+      }
+      return null;
+    }
+
+    function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen) {
+      const popup = safeGetBattlePopup();
+      if (!popup) {
+        log("Фаза 1: автовыбор DOM — попап BATTLE не найден.");
+        state.autoSelectionPendingKey = null;
+        return;
+      }
+      const roots = listBattleCardChoiceRoots(popup);
+      if (!roots[bestIdx]) {
+        log(
+          `Фаза 1: автовыбор DOM — нет карты idx=${bestIdx} (элементов .sh_card среди детей scroll: ${roots.length}). (${sourceLabel})`
+        );
+        state.autoSelectionPendingKey = null;
+        return;
+      }
+
+      roots[bestIdx].click();
+
+      const confirmMs = Math.max(100, CONFIG.cardDomConfirmDelayMs);
+      setTimeout(() => {
+        if (gen !== state.cardSelectionGen) {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+        if (!state.autoEnabled) {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+        if (state.currentPhase !== "CARD_SELECTION") {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+
+        const p2 = safeGetBattlePopup();
+        const confirm = findBattleCardConfirmControl(p2);
+        if (!confirm) {
+          log("Фаза 1: автовыбор DOM — кнопка «В бой!» не найдена после клика по карте.");
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+        confirm.click();
+        state.lastAutoCardKey = scoredKey;
+        state.autoSelectionPendingKey = null;
+        log(
+          `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+        );
+      }, confirmMs);
     }
 
     function updateOverlay() {
@@ -99,7 +180,7 @@
 
       const autoBtn = document.createElement("button");
       autoBtn.type = "button";
-      autoBtn.textContent = "Авто";
+      autoBtn.textContent = "Автобой";
       autoBtn.style.cursor = "pointer";
       autoBtn.style.border = "1px solid #777";
       autoBtn.style.borderRadius = "6px";
@@ -108,7 +189,8 @@
       autoBtn.style.color = "#fff";
       autoBtn.addEventListener("click", () => {
         state.autoEnabled = !state.autoEnabled;
-        log("Auto toggled:", state.autoEnabled);
+        state.cardSelectionGen += 1;
+        log("Автобой:", state.autoEnabled ? "вкл" : "выкл");
         updateOverlay();
       });
 
@@ -171,6 +253,10 @@
       return typeof cardId === "number" && Number.isFinite(cardId);
     }
 
+    function isSelectableHandLength(n) {
+      return Number.isInteger(n) && n >= 1 && n <= 3;
+    }
+
     function findCardSelectionContext(root, rootLabel) {
       const queue = [{ value: root, depth: 0, path: rootLabel }];
       const seen = new Set();
@@ -186,13 +272,21 @@
         const stateValue = value.state || value.s;
         const cards = value.cards || value.c || value.list;
 
-        if (Array.isArray(cards) && cards.length === 3 && cards.every((c) => c && typeof c === "object")) {
+        if (
+          Array.isArray(cards) &&
+          isSelectableHandLength(cards.length) &&
+          cards.every((c) => c && typeof c === "object")
+        ) {
           const ids = cards.map((c, idx) => getCardId(c, idx));
           const validCardCount = ids.filter((id) => isValidCardId(id)).length;
           const candidate = { cards, source: value, path, stateValue, validCardCount };
           if (stateValue === "CARD_SELECTION" && validCardCount > 0) {
             strictCandidates.push(candidate);
-          } else if (validCardCount === 3 && /battle/i.test(path)) {
+          } else if (
+            validCardCount === cards.length &&
+            isSelectableHandLength(cards.length) &&
+            /battle/i.test(path)
+          ) {
             looseCandidates.push(candidate);
           }
         }
@@ -290,7 +384,7 @@
       return normalizePhaseFromBattleState(battle.state);
     }
 
-    function findThreeCardArrayInObject(root, rootLabel) {
+    function findSmallSelectableCardArrayInObject(root, rootLabel) {
       const queue = [{ value: root, depth: 0, path: rootLabel }];
       const seen = new Set();
 
@@ -300,10 +394,10 @@
         if (seen.has(value)) continue;
         seen.add(value);
 
-        if (Array.isArray(value) && value.length === 3) {
+        if (Array.isArray(value) && isSelectableHandLength(value.length)) {
           const ids = value.map((card, idx) => getCardId(card, idx));
           const validCount = ids.filter((id) => isValidCardId(id)).length;
-          if (validCount >= 2) {
+          if (validCount === value.length && validCount >= 1) {
             return { cards: value, path, validCount };
           }
         }
@@ -339,14 +433,14 @@
       for (const cards of candidates) {
         if (
           Array.isArray(cards) &&
-          cards.length === 3 &&
+          isSelectableHandLength(cards.length) &&
           cards.every((card) => card && typeof card === "object")
         ) {
           return { cards, path: "battle.direct" };
         }
       }
 
-      const deepResult = findThreeCardArrayInObject(battle, "battle");
+      const deepResult = findSmallSelectableCardArrayInObject(battle, "battle");
       if (deepResult) {
         return { cards: deepResult.cards, path: deepResult.path };
       }
@@ -414,11 +508,15 @@
         if (seen.has(value)) continue;
         seen.add(value);
 
-        if (Array.isArray(value) && value.length === 3 && value.every((v) => Number.isInteger(v))) {
+        if (
+          Array.isArray(value) &&
+          isSelectableHandLength(value.length) &&
+          value.every((v) => Number.isInteger(v))
+        ) {
           const inRange = value.every((idx) => idx >= 0 && idx < deck.length);
           if (inRange) {
             const cards = value.map((idx) => deck[idx]).filter(Boolean);
-            if (cards.length === 3) {
+            if (cards.length === value.length) {
               matches.push({
                 indices: value.slice(),
                 cards,
@@ -451,6 +549,13 @@
     function setPhase(nextPhase, source) {
       if (!nextPhase && state.currentPhase) {
         log(`Phase ended: ${state.currentPhase}`);
+        if (state.currentPhase === "CARD_SELECTION") {
+          state.autoSelectionPendingKey = null;
+          state.lastAutoCardKey = null;
+          state.lastRecommendationKey = null;
+          state.recommendationUiWaitKey = null;
+          state.cardSelectionGen += 1;
+        }
         state.currentPhase = null;
         state.currentPhaseSource = null;
         return;
@@ -466,13 +571,20 @@
 
       if (state.currentPhase !== nextPhase) {
         log(`Phase ended: ${state.currentPhase}`);
+        if (state.currentPhase === "CARD_SELECTION") {
+          state.autoSelectionPendingKey = null;
+          state.lastAutoCardKey = null;
+          state.lastRecommendationKey = null;
+          state.recommendationUiWaitKey = null;
+          state.cardSelectionGen += 1;
+        }
         state.currentPhase = nextPhase;
         state.currentPhaseSource = source;
         log(`Phase started: ${nextPhase} (source: ${source})`);
       }
     }
 
-    function recommendFromCards(cards, sourceLabel) {
+    function pickBestFromPhaseCards(cards) {
       const scored = cards
         .map((card, idx) => ({
           idx,
@@ -489,21 +601,96 @@
           keys: Object.keys(card || {}),
         }));
         log(
-          `Фаза 1: есть список из 3 карт (${sourceLabel}), но не удалось посчитать мощь через app.UserUtil.getCardPower(cardId).`,
+          `Фаза 1: есть карты для выбора (${cards.length} шт.), но не удалось посчитать мощь через app.UserUtil.getCardPower(cardId).`,
           keysPreview
         );
-        return;
+        return null;
       }
 
       scored.sort((a, b) => b.power - a.power);
       const best = scored[0];
       const scoredKey = scored.map((entry) => `${entry.id}:${entry.power}`).join("|");
-      if (state.lastRecommendationKey === scoredKey) return;
-      state.lastRecommendationKey = scoredKey;
+      return { best, scoredKey, scored };
+    }
 
-      log(
-        `Фаза 1 рекомендация: выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}.`
-      );
+    function runPhaseOneCardChoice(phaseCards, sourceLabel) {
+      const triple =
+        Array.isArray(phaseCards) && phaseCards.length > 3
+          ? phaseCards.slice(0, 3)
+          : phaseCards;
+
+      const picked = pickBestFromPhaseCards(triple);
+      if (!picked) return;
+
+      const { best, scoredKey } = picked;
+
+      if (state.autoEnabled && (!Array.isArray(triple) || triple.length < 1)) {
+        log(`Фаза 1: автовыбор пропущен — нет карт в снапшоте. (${sourceLabel})`);
+        return;
+      }
+
+      const uiMs = cardSelectionUiReadyDelay();
+
+      if (!state.autoEnabled) {
+        if (state.lastRecommendationKey === scoredKey) return;
+        if (state.recommendationUiWaitKey === scoredKey) return;
+        state.recommendationUiWaitKey = scoredKey;
+        const gen = (state.cardSelectionGen += 1);
+        setTimeout(() => {
+          state.recommendationUiWaitKey = null;
+          if (gen !== state.cardSelectionGen) return;
+          if (state.currentPhase !== "CARD_SELECTION") return;
+          if (state.autoEnabled) return;
+          if (state.lastRecommendationKey === scoredKey) return;
+          state.lastRecommendationKey = scoredKey;
+          log(
+            `Фаза 1 рекомендация (после ~${uiMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+          );
+        }, uiMs);
+        return;
+      }
+
+      if (state.lastAutoCardKey === scoredKey) return;
+      if (state.autoSelectionPendingKey === scoredKey) return;
+      state.autoSelectionPendingKey = scoredKey;
+
+      const gen = (state.cardSelectionGen += 1);
+      setTimeout(() => {
+        if (!state.autoEnabled) {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+        if (gen !== state.cardSelectionGen) {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+        if (state.currentPhase !== "CARD_SELECTION") {
+          state.autoSelectionPendingKey = null;
+          return;
+        }
+
+        const delay = randomDelay();
+        log(
+          `Фаза 1: автовыбор — анимация UI ~${uiMs}ms, затем ещё ${delay}ms — idx=${best.idx}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+        );
+
+        setTimeout(() => {
+          if (!state.autoEnabled) {
+            state.autoSelectionPendingKey = null;
+            return;
+          }
+          if (gen !== state.cardSelectionGen) {
+            state.autoSelectionPendingKey = null;
+            return;
+          }
+          if (state.currentPhase !== "CARD_SELECTION") {
+            state.autoSelectionPendingKey = null;
+            return;
+          }
+
+          performAutobattleCardDom(best.idx, best, sourceLabel, scoredKey, gen);
+        }, delay);
+      }, uiMs);
     }
 
     function handleBattleSnapshot(battle, source) {
@@ -514,17 +701,16 @@
         setPhase(phase, source);
       }
 
-      if (!state.autoEnabled) return;
       if (phase !== "CARD_SELECTION") return;
 
-      // BattlePage uses u.m1.model.cards[0..2] in CARD_SELECTION and sends idx 0/1/2.
+      // BattlePage: u.m1.model.cards[0], [1], [2] if present; idx в BattleCardSelected совпадает с позицией в этом срезе (0..2).
       const m1Cards = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
-      if (m1Cards && m1Cards.length >= 3) {
+      if (m1Cards && m1Cards.length >= 1) {
         const phaseCards = m1Cards.slice(0, 3);
         state.noSnapshotCardsLogged = false;
         state.selectionIndicesLogged = false;
         state.noContextLogged = false;
-        recommendFromCards(phaseCards, `${source} -> m1.cards[0..2]`);
+        runPhaseOneCardChoice(phaseCards, `${source} -> m1.cards[0..2]`);
         return;
       }
 
@@ -539,7 +725,7 @@
           log(
             `Фаза 1: найден выбор по индексам (${idxSelection.path}) -> [${idxSelection.indices.join(", ")}].`
           );
-          recommendFromCards(idxSelection.cards, `${source} -> ${idxSelection.path}`);
+          runPhaseOneCardChoice(idxSelection.cards, `${source} -> ${idxSelection.path}`);
           return;
         }
 
@@ -547,27 +733,27 @@
           state.noSnapshotCardsLogged = true;
           const m1DeckLen = Array.isArray(battle?.m1?.cards) ? battle.m1.cards.length : 0;
           log(
-            `Фаза 1: state=CARD_SELECTION (${source}), но список из 3 карт не найден в battle snapshot. m1.cards=${m1DeckLen}`
+            `Фаза 1: state=CARD_SELECTION (${source}), но карты для выбора не извлечены из snapshot. m1.cards=${m1DeckLen}`
           );
         }
 
         const fullDeck = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
         if (fullDeck && fullDeck.length > 0) {
-          recommendFromCards(fullDeck, `${source} -> m1.cards(full-deck fallback)`);
+          runPhaseOneCardChoice(fullDeck, `${source} -> m1.cards(full-deck fallback)`);
         }
         return;
       }
       state.noSnapshotCardsLogged = false;
       state.selectionIndicesLogged = false;
       state.noContextLogged = false;
-      recommendFromCards(cardContext.cards, `${source} -> ${cardContext.path}`);
+      runPhaseOneCardChoice(cardContext.cards, `${source} -> ${cardContext.path}`);
     }
 
+    /** Не затирать фазу в null: detectPhase часто не видит состояние в DOM, а фаза уже выставлена из снапшота боя (сокет/command). */
     function updatePhaseTracking(popup) {
       const detected = detectPhase(popup);
-      const nextPhase = detected ? detected.phase : null;
-      const nextSource = detected ? detected.path : null;
-      setPhase(nextPhase, nextSource || "popup");
+      if (!detected) return;
+      setPhase(detected.phase, detected.path || "popup");
     }
 
     function onBattleDetected(source, popup) {
@@ -583,6 +769,10 @@
       state.currentPhase = null;
       state.currentPhaseSource = null;
       state.lastRecommendationKey = null;
+      state.lastAutoCardKey = null;
+      state.autoSelectionPendingKey = null;
+      state.recommendationUiWaitKey = null;
+      state.cardSelectionGen += 1;
       state.noContextLogged = false;
       state.powerErrorLogged = false;
       state.lastBattleSnapshotKey = null;
@@ -616,6 +806,10 @@
       state.currentPhase = null;
       state.currentPhaseSource = null;
       state.lastRecommendationKey = null;
+      state.lastAutoCardKey = null;
+      state.autoSelectionPendingKey = null;
+      state.recommendationUiWaitKey = null;
+      state.cardSelectionGen += 1;
       state.noContextLogged = false;
       state.powerErrorLogged = false;
       state.lastBattleSnapshotKey = null;
