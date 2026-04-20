@@ -1,0 +1,24 @@
+[KeepersHelper] Core initialized.
+[KeepersHelper] [AutoBattle] Command hook installed on app.Network.command
+[KeepersHelper] [AutoBattle] Battle detector initialized.
+[KeepersHelper] Module initialized: battle-detector
+[KeepersHelper] [AutoBattle] Auto toggled: true
+[KeepersHelper] [AutoBattle] Socket event BATTLE received.
+[KeepersHelper] [AutoBattle] Command sent: BattleUpdate (via app.Network.command)
+[KeepersHelper] [AutoBattle] Phase started: CARD_SELECTION (source: command:BattleUpdate)
+[KeepersHelper] [AutoBattle] Фаза 1: state=CARD_SELECTION (command:BattleUpdate), но список из 3 карт не найден в battle snapshot. m1.cards=8
+[KeepersHelper] [AutoBattle] Battle detected from "popup-poll".
+[KeepersHelper] [AutoBattle] Battle UI is ready. Automation can start now.
+[KeepersHelper] [AutoBattle] Command sent: BattleCardSelected (via app.Network.command)
+[KeepersHelper] [AutoBattle] Phase started: DICE_SELECTION (source: command:BattleCardSelected)
+[KeepersHelper] [AutoBattle] Phase ended: DICE_SELECTION
+[KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
+[KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
+[KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
+[KeepersHelper] [AutoBattle] Command sent: BattleDiceRollEnd (via app.Network.command)
+[KeepersHelper] [AutoBattle] Phase started: ROUND_END (source: command:BattleDiceRollEnd)
+[KeepersHelper] [AutoBattle] Phase ended: ROUND_END
+[KeepersHelper] [AutoBattle] Command sent: BattleUpdate (via app.Network.command)
+[KeepersHelper] [AutoBattle] Phase started: CARD_SELECTION (source: command:BattleUpdate)
+[KeepersHelper] [AutoBattle] Фаза 1: state=CARD_SELECTION (command:BattleUpdate), но список из 3 карт не найден в battle snapshot. m1.cards=8
+[KeepersHelper] [AutoBattle] Phase ended: CARD_SELECTION
