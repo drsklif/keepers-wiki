@@ -91,6 +91,11 @@
       cardSelectionUiReadyJitterMs: 150,
       /** После клика по карте BattlePage показывает «В бой!» через J(.4) — чуть с запасом. */
       cardDomConfirmDelayMs: 450,
+      /** DICE_SELECTION: анимация блока кубиков в BattlePage (совет «Бросаем кубики» + появление ряда). */
+      diceSelectionUiReadyMs: 700,
+      diceSelectionUiReadyJitterMs: 120,
+      battleFastSkipDelayMs: 450,
+      battleFastSkipSecondClickMs: 140,
       popupPollMs: 600,
       popupMissThreshold: 3,
     };
@@ -106,6 +111,12 @@
       lastAutoCardKey: null,
       autoSelectionPendingKey: null,
       recommendationUiWaitKey: null,
+      lastDiceRecommendationKey: null,
+      diceRecommendationUiWaitKey: null,
+      diceWarmupSkippedKey: null,
+      lastAutoDiceKey: null,
+      diceAutoPendingKey: null,
+      battleFastSkipPending: false,
       cardSelectionGen: 0,
       noContextLogged: false,
       powerErrorLogged: false,
@@ -132,6 +143,11 @@
     function cardSelectionUiReadyDelay() {
       const jitter = Math.max(0, CONFIG.cardSelectionUiReadyJitterMs);
       return CONFIG.cardSelectionUiReadyMs + Math.floor(Math.random() * (jitter + 1));
+    }
+
+    function diceSelectionUiReadyDelay() {
+      const jitter = Math.max(0, CONFIG.diceSelectionUiReadyJitterMs);
+      return CONFIG.diceSelectionUiReadyMs + Math.floor(Math.random() * (jitter + 1));
     }
 
     function safeGetBattlePopup() {
@@ -162,6 +178,92 @@
         if (t === "В бой!" || t.startsWith("В бой")) return a;
       }
       return null;
+    }
+
+    function listBattleDiceItems(popup) {
+      const root = popup?.scroll?.el;
+      if (!root) return [];
+      return Array.from(root.querySelectorAll(".dice_block .dice_item"));
+    }
+
+    function isDiceItemSelected(el) {
+      if (!el) return false;
+      const mark = el.querySelector(".dice_item_selected");
+      if (!mark) return false;
+      return mark.style.display !== "none";
+    }
+
+    function countSelectedDiceItems(items) {
+      if (!Array.isArray(items)) return 0;
+      let n = 0;
+      for (const el of items) {
+        if (isDiceItemSelected(el)) n += 1;
+      }
+      return n;
+    }
+
+    function findDiceRollControl(popup) {
+      const root = popup?.scroll?.el;
+      if (!root) return null;
+      const links = root.querySelectorAll("a.btn_g, a.btn_gs, a");
+      for (const a of links) {
+        const t = (a.textContent || "").trim();
+        if (t === "Бросить" || t.startsWith("Бросить") || t === "В бой!" || t.startsWith("В бой")) return a;
+      }
+      return null;
+    }
+
+    function triggerBattleFastSkip(reason) {
+      if (!state.autoEnabled) return;
+      if (state.battleFastSkipPending) return;
+      state.battleFastSkipPending = true;
+      log(`Фаза BATTLE: планируем ускорение анимации. (${reason})`);
+
+      const delay = Math.max(0, CONFIG.battleFastSkipDelayMs);
+      const secondMs = Math.max(60, CONFIG.battleFastSkipSecondClickMs);
+      setTimeout(() => {
+        const popup = safeGetBattlePopup();
+        const brd = popup?.els?.brd_r;
+        if (!popup || !brd) {
+          log(`Фаза BATTLE: ускорение отменено — popup/brd недоступны. (${reason})`);
+          state.battleFastSkipPending = false;
+          return;
+        }
+        const findBattleFastOverlay = () => {
+          const r = brd.getBoundingClientRect();
+          const kids = Array.from(brd.children || []);
+          const minW = r.width * 0.75;
+          const minH = r.height * 0.75;
+          return kids.reverse().find((el) => {
+            if (!el || typeof el.onclick !== "function") return false;
+            if (el.tagName !== "DIV") return false;
+            const cs = window.getComputedStyle(el);
+            if (!cs) return false;
+            // В BattlePage слой ускорения делается через W() и имеет opacity 0.
+            if (cs.opacity !== "0") return false;
+            if (cs.pointerEvents === "none") return false;
+            const b = el.getBoundingClientRect();
+            return b.width >= minW && b.height >= minH;
+          });
+        };
+        const clickOnce = () => {
+          const overlay = findBattleFastOverlay();
+          if (!overlay) return false;
+          overlay.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+          return true;
+        };
+
+        const firstOk = clickOnce();
+        setTimeout(() => {
+          const secondOk = clickOnce();
+          state.battleFastSkipPending = false;
+          if (firstOk || secondOk) {
+            log(`Фаза BATTLE: ускоряем анимацию (двойной клик по полю боя). (${reason})`);
+          } else {
+            log(`Фаза BATTLE: ускорение не применилось — не найден overlay боя (защита от клика по меню). (${reason})`);
+          }
+        }, secondMs);
+      }, delay);
     }
 
     function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen) {
@@ -208,7 +310,7 @@
         state.lastAutoCardKey = scoredKey;
         state.autoSelectionPendingKey = null;
         log(
-          `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+          `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
         );
       }, confirmMs);
     }
@@ -631,6 +733,13 @@
           state.recommendationUiWaitKey = null;
           state.cardSelectionGen += 1;
         }
+        if (state.currentPhase === "DICE_SELECTION") {
+          state.lastDiceRecommendationKey = null;
+          state.diceRecommendationUiWaitKey = null;
+          state.lastAutoDiceKey = null;
+          state.diceAutoPendingKey = null;
+          state.cardSelectionGen += 1;
+        }
         state.currentPhase = null;
         state.currentPhaseSource = null;
         return;
@@ -641,6 +750,9 @@
         state.currentPhase = nextPhase;
         state.currentPhaseSource = source;
         log(`Phase started: ${nextPhase} (source: ${source})`);
+        if (nextPhase === "BATTLE") {
+          triggerBattleFastSkip(`phase-start:${source}`);
+        }
         return;
       }
 
@@ -653,19 +765,59 @@
           state.recommendationUiWaitKey = null;
           state.cardSelectionGen += 1;
         }
+        if (state.currentPhase === "DICE_SELECTION") {
+          state.lastDiceRecommendationKey = null;
+          state.diceRecommendationUiWaitKey = null;
+          state.lastAutoDiceKey = null;
+          state.diceAutoPendingKey = null;
+          state.cardSelectionGen += 1;
+        }
         state.currentPhase = nextPhase;
         state.currentPhaseSource = source;
         log(`Phase started: ${nextPhase} (source: ${source})`);
+        if (nextPhase === "BATTLE") {
+          triggerBattleFastSkip(`phase-change:${source}`);
+        }
       }
     }
 
     function pickBestFromPhaseCards(cards) {
+      const getCardQualityInfo = (cardId) => {
+        if (!isValidCardId(cardId)) return { quality: -1, qualityName: "?" };
+        try {
+          const cfgCard = app.CFGUtil.getCardByID(cardId);
+          const quality = typeof cfgCard?.quality === "number" ? cfgCard.quality : -1;
+          const qualityName =
+            typeof app.CFGUtil.getCardQualityName === "function"
+              ? app.CFGUtil.getCardQualityName(quality)
+              : String(quality);
+          return { quality, qualityName };
+        } catch (_e) {
+          return { quality: -1, qualityName: "?" };
+        }
+      };
+
+      const getCardDamageStats = (card) => {
+        const combos = Array.isArray(card?.combos) ? card.combos : [];
+        let normal = 0;
+        let magic = 0;
+        for (const combo of combos) {
+          const hit = typeof combo?.hit === "number" && Number.isFinite(combo.hit) ? combo.hit : 0;
+          const types = Array.isArray(combo?.type) ? combo.type : [];
+          if (types.includes("HIT")) normal += hit;
+          if (types.includes("F") || types.includes("N") || types.includes("W")) magic += hit;
+        }
+        return { normal, magic, total: normal + magic };
+      };
+
       const scored = cards
         .map((card, idx) => ({
           idx,
           id: getCardId(card, idx),
           name: getCardName(getCardId(card, idx)),
           power: getCardPower(getCardId(card, idx)),
+          ...getCardQualityInfo(getCardId(card, idx)),
+          dmg: getCardDamageStats(card),
         }))
         .filter((entry) => typeof entry.power === "number");
 
@@ -682,10 +834,234 @@
         return null;
       }
 
-      scored.sort((a, b) => b.power - a.power);
+      scored.sort((a, b) => {
+        if (b.power !== a.power) return b.power - a.power;
+        if (b.quality !== a.quality) return b.quality - a.quality;
+        if (b.dmg.total !== a.dmg.total) return b.dmg.total - a.dmg.total;
+        if (b.dmg.magic !== a.dmg.magic) return b.dmg.magic - a.dmg.magic;
+        if (b.dmg.normal !== a.dmg.normal) return b.dmg.normal - a.dmg.normal;
+        return a.idx - b.idx;
+      });
       const best = scored[0];
-      const scoredKey = scored.map((entry) => `${entry.id}:${entry.power}`).join("|");
+      const scoredKey = scored
+        .map((entry) => `${entry.id}:${entry.power}:${entry.dmg.magic}:${entry.dmg.normal}`)
+        .join("|");
       return { best, scoredKey, scored };
+    }
+
+    function formatDiceSnapshot(dices) {
+      if (!Array.isArray(dices)) return "[]";
+      return dices.map((d, i) => `${i}:${d?.t ?? "?"}(s=${d?.s ? 1 : 0})`).join(", ");
+    }
+
+    function getBattleCardCfgForDicePhase(battle) {
+      const idx = battle?.m1?.cardIDX;
+      const cards = battle?.m1?.cards;
+      if (typeof idx !== "number" || idx < 0 || !Array.isArray(cards) || !cards[idx]) return null;
+      const cid = getCardId(cards[idx], idx);
+      if (typeof cid !== "number" || !isValidCardId(cid)) return null;
+      try {
+        return app.CFGUtil.getCardByID(cid) || null;
+      } catch (_e) {
+        return null;
+      }
+    }
+
+    /**
+     * Маска для BattleDiceRoll.dices: 1 = держать кубик, 0 = отпустить (пойдёт в переброс).
+     * У кубиков в бою только грани F / N / W / HIT (см. CFGUtil.getElemIMGByType).
+     * — Простая карта (quality===0): имеет смысл удерживать только HIT; стихии F/N/W гоняем.
+     * — Необычная и выше (quality>=1): у карты есть основная стихия et (часто F/N/W); держим HIT и все грани, совпадающие с et.
+     */
+    function buildDiceHoldMaskFromBattle(battle, dices) {
+      const n = Array.isArray(dices) ? dices.length : 0;
+      if (n === 0) return { mask: [], note: "нет кубиков", cardLine: "" };
+
+      const cfg = getBattleCardCfgForDicePhase(battle);
+      const quality = typeof cfg?.quality === "number" ? cfg.quality : 0;
+      const et = typeof cfg?.et === "string" ? cfg.et.trim() : "";
+      const name = cfg && typeof cfg.name === "string" ? cfg.name.trim() : "";
+      const cardLine = cfg
+        ? `карта хода: «${name || "без имени"}» quality=${quality} et=${et || "—"}`
+        : "карта хода: не удалось сопоставить m1.cardIDX + CFGUtil.getCardByID — только логика HIT";
+
+      const mask = new Array(n).fill(0);
+      for (let i = 0; i < n; i += 1) {
+        if (dices[i] && dices[i].t === "HIT") mask[i] = 1;
+      }
+
+      const isSimple = quality === 0;
+      const elemIsFNW = et === "F" || et === "N" || et === "W";
+
+      if (!isSimple && elemIsFNW) {
+        for (let i = 0; i < n; i += 1) {
+          if (dices[i] && dices[i].t === et) mask[i] = 1;
+        }
+      }
+
+      const held = mask.reduce((a, v) => a + (v ? 1 : 0), 0);
+      let note;
+      if (isSimple) {
+        note =
+          held > 0
+            ? "простая карта: держим только грани HIT, F/N/W — на переброс"
+            : "простая карта: HIT на столе нет — перебрасываем все кубики (ищем HIT)";
+      } else if (elemIsFNW) {
+        note = `магическая карта: держим HIT и все грани стихии ${et} (остальное на переброс)`;
+      } else {
+        note =
+          "магическая карта, но et не F/N/W — держим только HIT (как запасной вариант; при необходимости уточним правило под вашу колоду)";
+      }
+
+      const allTargetNow = mask.every((v) => v === 1);
+      return { mask, note, cardLine, allTargetNow };
+    }
+
+    function runPhaseTwoDiceRecommendation(battle, sourceLabel) {
+      const dices = battle?.m1?.dices;
+      if (!Array.isArray(dices) || dices.length === 0) {
+        log(`Фаза 2: DICE_SELECTION (${sourceLabel}), но m1.dices пуст или отсутствует.`);
+        return;
+      }
+      const rolls = battle?.m1?.rolls;
+      const rollsNum = typeof rolls === "number" && Number.isFinite(rolls) ? rolls : -1;
+      if (rollsNum <= 0) return;
+      /** Дедуп лога: число оставшихся бросков + для каждого кубика пара «грань t» и «уже закреплён игроком s». */
+      const snapKey = `${rollsNum}|${dices.map((d) => `${d?.t ?? "?"}:${d?.s ? 1 : 0}`).join(",")}`;
+
+      // Первый кадр DICE_SELECTION в клиенте часто искусственный: 6xF до реального BattleDiceRoll.
+      const looksLikeWarmup =
+        rollsNum >= 3 && dices.length === 6 && dices.every((d) => d?.t === "F" && !d?.s);
+      if (looksLikeWarmup) {
+        if (state.diceWarmupSkippedKey !== snapKey) {
+          state.diceWarmupSkippedKey = snapKey;
+          log("Фаза 2: пропускаем стартовый прелоад кубиков (6xF до первого реального броска).");
+        }
+        return;
+      }
+
+      if (state.lastDiceRecommendationKey === snapKey) return;
+      if (state.diceRecommendationUiWaitKey === snapKey) return;
+      state.diceRecommendationUiWaitKey = snapKey;
+
+      const uiMs = diceSelectionUiReadyDelay();
+      const gen = (state.cardSelectionGen += 1);
+      setTimeout(() => {
+        state.diceRecommendationUiWaitKey = null;
+        if (gen !== state.cardSelectionGen) return;
+        if (state.currentPhase !== "DICE_SELECTION") return;
+        if (state.lastDiceRecommendationKey === snapKey) return;
+        state.lastDiceRecommendationKey = snapKey;
+
+        const { mask, note, cardLine, allTargetNow } = buildDiceHoldMaskFromBattle(battle, dices);
+        if (!state.autoEnabled) {
+          log(
+            `Фаза 2 РЕКОМЕНДАЦИЯ: dices=${JSON.stringify(mask)}. ${note}${allTargetNow ? " Все 6 граней уже целевые -> можно сразу жать «В бой!»." : ""}. rolls=${rollsNum >= 0 ? rollsNum : "?"}. ${cardLine}. Кубики: [${formatDiceSnapshot(
+              dices
+            )}]. (${sourceLabel})`
+          );
+          return;
+        }
+
+        if (state.lastAutoDiceKey === snapKey) return;
+        if (state.diceAutoPendingKey === snapKey) return;
+        state.diceAutoPendingKey = snapKey;
+
+        const delay = allTargetNow ? Math.min(300, randomDelay()) : randomDelay();
+        log(
+          `Фаза 2: автовыбор кубиков через ${delay}ms. dices=${JSON.stringify(mask)}.${allTargetNow ? " Все 6 целевые -> переходим сразу в «В бой!»." : ""} rolls=${rollsNum}. (${sourceLabel})`
+        );
+
+        setTimeout(() => {
+          if (!state.autoEnabled) {
+            state.diceAutoPendingKey = null;
+            return;
+          }
+          if (gen !== state.cardSelectionGen) {
+            state.diceAutoPendingKey = null;
+            return;
+          }
+          if (state.currentPhase !== "DICE_SELECTION") {
+            state.diceAutoPendingKey = null;
+            return;
+          }
+
+          const popup = safeGetBattlePopup();
+          const items = listBattleDiceItems(popup);
+          if (items.length !== mask.length) {
+            log(
+              `Фаза 2: автовыбор кубиков пропущен — в UI dice_item=${items.length}, в модели=${mask.length}.`
+            );
+            state.diceAutoPendingKey = null;
+            return;
+          }
+
+          for (let i = 0; i < items.length; i += 1) {
+            const shouldHold = mask[i] === 1;
+            const selectedNow = isDiceItemSelected(items[i]);
+            if (selectedNow !== shouldHold) {
+              items[i].click();
+            }
+          }
+
+          const applyMaskAndClick = (attempt = 0) => {
+            const pNow = safeGetBattlePopup();
+            const itemsNow = listBattleDiceItems(pNow);
+            const rollBtnNow = findDiceRollControl(pNow);
+            if (!rollBtnNow) {
+              log("Фаза 2: автовыбор кубиков — кнопка броска не найдена.");
+              state.diceAutoPendingKey = null;
+              return;
+            }
+
+            if (itemsNow.length !== mask.length) {
+              if (attempt < 5) {
+                setTimeout(() => applyMaskAndClick(attempt + 1), 120);
+                return;
+              }
+              log(
+                `Фаза 2: автовыбор кубиков пропущен — в UI dice_item=${itemsNow.length}, в модели=${mask.length}.`
+              );
+              state.diceAutoPendingKey = null;
+              return;
+            }
+
+            for (let i = 0; i < itemsNow.length; i += 1) {
+              const shouldHold = mask[i] === 1;
+              const selectedNow = isDiceItemSelected(itemsNow[i]);
+              if (selectedNow !== shouldHold) {
+                itemsNow[i].click();
+              }
+            }
+
+            const btnText = (rollBtnNow.textContent || "").trim();
+            if (allTargetNow) {
+              const selectedCount = countSelectedDiceItems(itemsNow);
+              const readyForFight = selectedCount === mask.length && btnText.startsWith("В бой");
+              if (!readyForFight) {
+                if (attempt < 6) {
+                  setTimeout(() => applyMaskAndClick(attempt + 1), 140);
+                  return;
+                }
+                log(
+                  `Фаза 2: все 6 целевые, но UI не готов к "В бой!" (selected=${selectedCount}/${mask.length}, btn="${btnText}").`
+                );
+                state.diceAutoPendingKey = null;
+                return;
+              }
+            }
+
+            rollBtnNow.click();
+            state.lastAutoDiceKey = snapKey;
+            state.diceAutoPendingKey = null;
+            log(`Фаза 2: автовыбор применён, клик по кнопке "${btnText}".`);
+            if (btnText.startsWith("В бой")) {
+              triggerBattleFastSkip(`after-dice-click:${sourceLabel}`);
+            }
+          };
+          applyMaskAndClick(0);
+        }, delay);
+      }, uiMs);
     }
 
     function runPhaseOneCardChoice(phaseCards, sourceLabel) {
@@ -697,7 +1073,13 @@
       const picked = pickBestFromPhaseCards(triple);
       if (!picked) return;
 
-      const { best, scoredKey } = picked;
+      const { best, scoredKey, scored } = picked;
+      const cardsListLine = scored
+        .map(
+          (c) =>
+            `idx=${c.idx} "${c.name}" rare=${c.qualityName}(${c.quality}) power=${c.power} totalDmg=${c.dmg.total}`
+        );
+      log(`Фаза 1 карты:\n${cardsListLine.join("\n")}\n(${sourceLabel})`);
 
       if (state.autoEnabled && (!Array.isArray(triple) || triple.length < 1)) {
         log(`Фаза 1: автовыбор пропущен — нет карт в снапшоте. (${sourceLabel})`);
@@ -719,7 +1101,7 @@
           if (state.lastRecommendationKey === scoredKey) return;
           state.lastRecommendationKey = scoredKey;
           log(
-            `Фаза 1 рекомендация (после ~${uiMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+            `Фаза 1 рекомендация (после ~${uiMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
           );
         }, uiMs);
         return;
@@ -746,7 +1128,7 @@
 
         const delay = randomDelay();
         log(
-          `Фаза 1: автовыбор — анимация UI ~${uiMs}ms, затем ещё ${delay}ms — idx=${best.idx}, name="${best.name}", power=${best.power}. (${sourceLabel})`
+          `Фаза 1: автовыбор — анимация UI ~${uiMs}ms, затем ещё ${delay}ms — idx=${best.idx}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
         );
 
         setTimeout(() => {
@@ -774,6 +1156,10 @@
       const phase = getBattleStateFromSnapshot(battle);
       if (phase) {
         setPhase(phase, source);
+      }
+
+      if (phase === "DICE_SELECTION") {
+        runPhaseTwoDiceRecommendation(battle, source);
       }
 
       if (phase !== "CARD_SELECTION") return;
@@ -841,13 +1227,20 @@
       state.battleActive = true;
       state.readyLogged = false;
       state.popupMisses = 0;
-      state.currentPhase = null;
-      state.currentPhaseSource = null;
+      /* Не сбрасывать currentPhase: ответ BattleUpdate мог уже выставить CARD_SELECTION через handleBattleSnapshot;
+         обнуление здесь ломает отложенный автовыбор (таймер видит фазу не CARD_SELECTION). Фазу обнуляет onBattleEnded. */
       state.lastRecommendationKey = null;
       state.lastAutoCardKey = null;
       state.autoSelectionPendingKey = null;
       state.recommendationUiWaitKey = null;
-      state.cardSelectionGen += 1;
+      state.lastDiceRecommendationKey = null;
+      state.diceRecommendationUiWaitKey = null;
+      state.diceWarmupSkippedKey = null;
+      state.lastAutoDiceKey = null;
+      state.diceAutoPendingKey = null;
+      state.battleFastSkipPending = false;
+      /* Не делаем cardSelectionGen += 1 здесь: CARD_SELECTION часто приходит из сокета/command раньше первого
+         обнаружения попапа; инкремент отменял бы уже запланированный автовыбор карты в начале боя. */
       state.noContextLogged = false;
       state.powerErrorLogged = false;
       state.lastBattleSnapshotKey = null;
@@ -884,6 +1277,12 @@
       state.lastAutoCardKey = null;
       state.autoSelectionPendingKey = null;
       state.recommendationUiWaitKey = null;
+      state.lastDiceRecommendationKey = null;
+      state.diceRecommendationUiWaitKey = null;
+      state.diceWarmupSkippedKey = null;
+      state.lastAutoDiceKey = null;
+      state.diceAutoPendingKey = null;
+      state.battleFastSkipPending = false;
       state.cardSelectionGen += 1;
       state.noContextLogged = false;
       state.powerErrorLogged = false;
@@ -966,8 +1365,13 @@
                     state: response.battle.state,
                     st: response.battle.st,
                     cardIDX: response.battle?.m1?.cardIDX,
+                    rolls: response.battle?.m1?.rolls,
                     cards: (getSelectableCardsFromBattleSnapshot(response.battle)?.cards || [])
                       .map((card, idx) => getCardId(card, idx)),
+                    dices: (Array.isArray(response.battle?.m1?.dices) ? response.battle.m1.dices : []).map((d) => ({
+                      t: d?.t ?? "?",
+                      s: d?.s ? 1 : 0,
+                    })),
                   });
                   if (snapshotKey !== state.lastBattleSnapshotKey) {
                     state.lastBattleSnapshotKey = snapshotKey;

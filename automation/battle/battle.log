@@ -1,24 +1,16 @@
-[KeepersHelper] Core initialized.
-[KeepersHelper] [AutoBattle] Command hook installed on app.Network.command
-[KeepersHelper] [AutoBattle] Battle detector initialized.
-[KeepersHelper] Module initialized: battle-detector
-[KeepersHelper] [AutoBattle] Auto toggled: true
-[KeepersHelper] [AutoBattle] Socket event BATTLE received.
-[KeepersHelper] [AutoBattle] Command sent: BattleUpdate (via app.Network.command)
-[KeepersHelper] [AutoBattle] Phase started: CARD_SELECTION (source: command:BattleUpdate)
-[KeepersHelper] [AutoBattle] Фаза 1: state=CARD_SELECTION (command:BattleUpdate), но список из 3 карт не найден в battle snapshot. m1.cards=8
-[KeepersHelper] [AutoBattle] Battle detected from "popup-poll".
-[KeepersHelper] [AutoBattle] Battle UI is ready. Automation can start now.
-[KeepersHelper] [AutoBattle] Command sent: BattleCardSelected (via app.Network.command)
-[KeepersHelper] [AutoBattle] Phase started: DICE_SELECTION (source: command:BattleCardSelected)
-[KeepersHelper] [AutoBattle] Phase ended: DICE_SELECTION
 [KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
-[KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
-[KeepersHelper] [AutoBattle] Command sent: BattleDiceRoll (via app.Network.command)
+[KeepersHelper] [AutoBattle] Фаза 2: автовыбор применён, клик по кнопке "Бросить еще".
 [KeepersHelper] [AutoBattle] Command sent: BattleDiceRollEnd (via app.Network.command)
+[KeepersHelper] [AutoBattle] Phase ended: DICE_SELECTION
 [KeepersHelper] [AutoBattle] Phase started: ROUND_END (source: command:BattleDiceRollEnd)
-[KeepersHelper] [AutoBattle] Phase ended: ROUND_END
 [KeepersHelper] [AutoBattle] Command sent: BattleUpdate (via app.Network.command)
+[KeepersHelper] [AutoBattle] Фаза ROUND_END: ранний BattleUpdate для ускорения перехода. (phase-change:command:BattleDiceRollEnd)
+[KeepersHelper] [AutoBattle] Phase ended: ROUND_END
 [KeepersHelper] [AutoBattle] Phase started: CARD_SELECTION (source: command:BattleUpdate)
-[KeepersHelper] [AutoBattle] Фаза 1: state=CARD_SELECTION (command:BattleUpdate), но список из 3 карт не найден в battle snapshot. m1.cards=8
-[KeepersHelper] [AutoBattle] Phase ended: CARD_SELECTION
+[KeepersHelper] [AutoBattle] Фаза 1 карты:
+idx=0 "Ведьма Рона" rare=Необычная(1) power=10147 totalDmg=10892
+idx=1 "Фолки Дуборук" rare=Редкая(2) power=5110 totalDmg=6756
+idx=2 "Резвый Волнорез" rare=Редкая(2) power=4364 totalDmg=5334
+(command:BattleUpdate -> m1.cards[0..2])
+[KeepersHelper] [AutoBattle] Фаза 1: автовыбор — анимация UI ~971ms, затем ещё 1049ms — idx=0, name="Ведьма Рона", power=10147, dmgMagic=6856, dmgNormal=4036. (command:BattleUpdate -> m1.cards[0..2])
+[KeepersHelper] [AutoBattle] Фаза 1: автовыбор DOM — кнопка «В бой!» не найдена после клика по карте.
