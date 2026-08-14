@@ -9,33 +9,49 @@
 
   helper.registerModule("battle-detector", (core) => {
     const CONFIG = {
-      // [Общее] Базовая "человеческая" задержка перед авто-действиями (в миллисекундах).
-      reactionDelayMs: 900,
-      // [Общее] Случайный разброс к reactionDelayMs (0..reactionJitterMs).
-      reactionJitterMs: 400,
-      // [Фаза 1] Ожидание готовности UI после CARD_SELECTION (до показа/клика карт).
-      cardSelectionUiReadyMs: 950,
-      // [Фаза 1] Разброс задержки готовности UI карт.
-      cardSelectionUiReadyJitterMs: 150,
-      // [Фаза 1] Пауза между кликом по карте и поиском кнопки "В бой!".
-      cardDomConfirmDelayMs: 450,
-      // [Фаза 2] Ожидание готовности UI кубиков после входа в DICE_SELECTION.
-      diceSelectionUiReadyMs: 700,
-      // [Фаза 2] Разброс задержки готовности UI кубиков.
-      diceSelectionUiReadyJitterMs: 120,
-      // [ROUND_END] Через сколько мс после старта фазы пробовать нативный skip-анимации.
-      battleFastSkipDelayMs: 450,
-      // [ROUND_END] Интервал между первым и вторым click для нативного skip.
-      battleFastSkipSecondClickMs: 140,
-      // [Фаза 2] Во сколько раз ускорять TweenMax только для анимации броска кубиков.
+      // Опорная скорость UI: значения в delays откалиброваны при этом множителе (x1.5).
+      referenceSpeed: 1.5,
+      // Нижний предел любой масштабированной задержки (мс).
+      minDelayMs: 60,
+      delays: {
+        // [Фаза 1] Ожидание готовности UI после CARD_SELECTION.
+        cardUiReady: 950,
+        cardUiReadyJitter: 150,
+        // [Фаза 1] Пауза перед кликом по карте (бывш. reaction).
+        cardActionGap: 900,
+        cardActionGapJitter: 400,
+        // [Фаза 1] Пауза после клика по карте, до «В бой!» (нельзя объединять с actionGap — иначе desync).
+        cardConfirm: 450,
+        // [Фаза 2] Ожидание готовности UI кубиков после DICE_SELECTION.
+        diceUiReady: 700,
+        diceUiReadyJitter: 120,
+        // [Фаза 2] Пауза перед автовыбором кубиков (бывш. reaction).
+        diceActionGap: 900,
+        diceActionGapJitter: 400,
+        // [Фаза 2] Верхняя граница diceActionGap, когда все 6 граней уже целевые.
+        diceActionGapCap: 300,
+        // [ROUND_END] Задержка перед нативным skip-анимации.
+        battleSkip: 450,
+        // [ROUND_END] Интервал между первым и вторым click skip.
+        battleSkipSecond: 140,
+        // [Фаза 2] Длительность временного ускорения броска кубиков.
+        diceRollBoost: 1400,
+        // [UI retry] Повторная проверка DOM (кубики, overlay skip, «В бой!»).
+        retryPoll: 120,
+        retryPollReady: 140,
+        retrySkipOverlay: 100,
+        // [Старт] Задержка перед логом «Battle UI is ready».
+        battleReady: 400,
+      },
+      // [Фаза 2] Абсолютный TweenMax-scale на время анимации броска кубиков (не умножается на кнопку «Скорость»).
       diceRollAnimBoostScale: 3.2,
-      // [Фаза 2] Длительность временного ускорения броска кубиков.
-      diceRollAnimBoostDurationMs: 1400,
-      // [Глобально] Доступные скорости анимаций для кнопки "Скорость" (циклическое переключение).
+      // [Фаза 1] Множитель к выбранной скорости UI на время CARD_SELECTION (анимации + задержки).
+      cardSelectionSpeedFactor: 1.2,
+      // [Глобально] Доступные скорости анимаций для кнопки «Скорость».
       uiSpeedLevels: [1.5, 2, 3],
-      // [Детектор] Частота проверки battle popup.
+      // [Детектор] Частота проверки battle popup (не масштабируется).
       popupPollMs: 600,
-      // [Детектор] Сколько "промахов" popup подряд считать окончанием боя.
+      // [Детектор] Сколько «промахов» popup подряд считать окончанием боя.
       popupMissThreshold: 3,
     };
 
@@ -79,19 +95,66 @@
       core.log("[AutoBattle]", ...args);
     }
 
-    function randomDelay() {
-      const jitter = Math.max(0, CONFIG.reactionJitterMs);
-      return CONFIG.reactionDelayMs + Math.floor(Math.random() * (jitter + 1));
+    function getSelectedUiSpeed() {
+      const levels =
+        Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0
+          ? CONFIG.uiSpeedLevels
+          : [CONFIG.referenceSpeed || 1.5];
+      const idx = Math.max(0, Math.min(state.uiSpeedIndex, levels.length - 1));
+      const speed = levels[idx];
+      return typeof speed === "number" && Number.isFinite(speed) && speed > 0 ? speed : 1.5;
     }
 
-    function cardSelectionUiReadyDelay() {
-      const jitter = Math.max(0, CONFIG.cardSelectionUiReadyJitterMs);
-      return CONFIG.cardSelectionUiReadyMs + Math.floor(Math.random() * (jitter + 1));
+    function getCardPhaseSpeedFactor() {
+      const factor = CONFIG.cardSelectionSpeedFactor;
+      return typeof factor === "number" && Number.isFinite(factor) && factor > 0 ? factor : 1;
     }
 
-    function diceSelectionUiReadyDelay() {
-      const jitter = Math.max(0, CONFIG.diceSelectionUiReadyJitterMs);
-      return CONFIG.diceSelectionUiReadyMs + Math.floor(Math.random() * (jitter + 1));
+    function getCurrentUiSpeed() {
+      const base = getSelectedUiSpeed();
+      if (state.currentPhase === "CARD_SELECTION") {
+        return base * getCardPhaseSpeedFactor();
+      }
+      return base;
+    }
+
+    function scaleDelay(baseMs, opts = {}) {
+      const base = Math.max(0, Number(baseMs) || 0);
+      if (base === 0) return 0;
+      const speed = Math.max(0.1, getCurrentUiSpeed());
+      const ref = Math.max(0.1, CONFIG.referenceSpeed || 1.5);
+      const minMs = Math.max(0, opts.min ?? CONFIG.minDelayMs ?? 60);
+      const scaled = Math.round((base * ref) / speed);
+      if (opts.max != null && Number.isFinite(opts.max)) {
+        return Math.max(minMs, Math.min(opts.max, scaled));
+      }
+      return Math.max(minMs, scaled);
+    }
+
+    function scaleDelayWithJitter(baseMs, jitterMs, opts = {}) {
+      const jitter = Math.max(0, Number(jitterMs) || 0);
+      const extra = jitter > 0 ? Math.floor(Math.random() * (jitter + 1)) : 0;
+      return scaleDelay(baseMs + extra, opts);
+    }
+
+    function cardPhaseWaitDelay() {
+      return scaleDelayWithJitter(CONFIG.delays.cardUiReady, CONFIG.delays.cardUiReadyJitter);
+    }
+
+    function cardActionGapDelay() {
+      return scaleDelayWithJitter(CONFIG.delays.cardActionGap, CONFIG.delays.cardActionGapJitter);
+    }
+
+    function dicePhaseWaitDelay() {
+      return scaleDelayWithJitter(CONFIG.delays.diceUiReady, CONFIG.delays.diceUiReadyJitter);
+    }
+
+    function diceActionGapDelay(opts = {}) {
+      const delay = scaleDelayWithJitter(CONFIG.delays.diceActionGap, CONFIG.delays.diceActionGapJitter);
+      if (opts.cap) {
+        return Math.min(scaleDelay(CONFIG.delays.diceActionGapCap), delay);
+      }
+      return delay;
     }
 
     function safeGetBattlePopup() {
@@ -163,8 +226,8 @@
       state.battleFastSkipPending = true;
       log(`Фаза BATTLE: планируем ускорение анимации. (${reason})`);
 
-      const delay = Math.max(0, CONFIG.battleFastSkipDelayMs);
-      const secondMs = Math.max(60, CONFIG.battleFastSkipSecondClickMs);
+      const delay = scaleDelay(CONFIG.delays.battleSkip, { min: 0 });
+      const secondMs = scaleDelay(CONFIG.delays.battleSkipSecond, { min: CONFIG.minDelayMs });
       setTimeout(() => {
         const popup = safeGetBattlePopup();
         const brd = popup?.els?.brd_r;
@@ -213,7 +276,7 @@
           const overlay = findBattleSkipOverlay();
           if (!overlay) {
             if (attempt < 12) {
-              setTimeout(() => tryApply(attempt + 1), 100);
+              setTimeout(() => tryApply(attempt + 1), scaleDelay(CONFIG.delays.retrySkipOverlay));
               return;
             }
             state.battleFastSkipPending = false;
@@ -235,8 +298,8 @@
       if (state.diceAnimBoostActive) return;
 
       const boostScale = Math.max(1, CONFIG.diceRollAnimBoostScale);
-      const durationMs = Math.max(200, CONFIG.diceRollAnimBoostDurationMs);
-      state.diceAnimPrevScale = TweenMax.globalTimeScale();
+      const durationMs = scaleDelay(CONFIG.delays.diceRollBoost, { min: 200 });
+      state.diceAnimPrevScale = getSelectedUiSpeed();
       TweenMax.globalTimeScale(boostScale);
       state.diceAnimBoostActive = true;
       log(`Фаза DICE: ускоряем анимацию броска x${boostScale}. (${reason})`);
@@ -245,16 +308,19 @@
         clearTimeout(state.diceAnimBoostTimer);
       }
       state.diceAnimBoostTimer = setTimeout(() => {
-        const backTo =
-          typeof state.diceAnimPrevScale === "number" && Number.isFinite(state.diceAnimPrevScale)
-            ? state.diceAnimPrevScale
-            : 1;
-        TweenMax.globalTimeScale(backTo);
-        state.diceAnimBoostActive = false;
-        state.diceAnimPrevScale = 1;
-        state.diceAnimBoostTimer = null;
-        log(`Фаза DICE: возвращаем скорость анимации x${backTo}.`);
+        restoreDiceAnimBoost("dice-boost-timeout");
       }, durationMs);
+    }
+
+    function restoreDiceAnimBoost(source) {
+      if (state.diceAnimBoostTimer) {
+        clearTimeout(state.diceAnimBoostTimer);
+        state.diceAnimBoostTimer = null;
+      }
+      if (!state.diceAnimBoostActive) return;
+      state.diceAnimBoostActive = false;
+      state.diceAnimPrevScale = 1;
+      applyBattleTweenScale(source || "dice-boost-end");
     }
 
     function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen) {
@@ -275,8 +341,8 @@
 
       roots[bestIdx].click();
 
-      const confirmMs = Math.max(100, CONFIG.cardDomConfirmDelayMs);
-      setTimeout(() => {
+      const confirmMs = scaleDelay(CONFIG.delays.cardConfirm);
+      const tryConfirm = (attempt = 0) => {
         if (gen !== state.cardSelectionGen) {
           state.autoSelectionPendingKey = null;
           return;
@@ -293,6 +359,10 @@
         const p2 = safeGetBattlePopup();
         const confirm = findBattleCardConfirmControl(p2);
         if (!confirm) {
+          if (attempt < 8) {
+            setTimeout(() => tryConfirm(attempt + 1), scaleDelay(CONFIG.delays.retryPoll));
+            return;
+          }
           log("Фаза 1: автовыбор DOM — кнопка «В бой!» не найдена после клика по карте.");
           state.autoSelectionPendingKey = null;
           return;
@@ -303,7 +373,8 @@
         log(
           `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
         );
-      }, confirmMs);
+      };
+      setTimeout(() => tryConfirm(0), confirmMs);
     }
 
     function updateOverlay() {
@@ -329,13 +400,21 @@
       }
     }
 
-    function applyUiSpeedScale(scale, source) {
+    function applyBattleTweenScale(source) {
       if (!window.TweenMax || typeof TweenMax.globalTimeScale !== "function") {
-        log(`Скорость UI x${scale}: TweenMax.globalTimeScale недоступен. (${source})`);
+        log(`Скорость UI: TweenMax.globalTimeScale недоступен. (${source})`);
         return;
       }
+      if (state.diceAnimBoostActive) return;
+      const base = getSelectedUiSpeed();
+      const factor = state.currentPhase === "CARD_SELECTION" ? getCardPhaseSpeedFactor() : 1;
+      const scale = Number((base * factor).toFixed(4));
       TweenMax.globalTimeScale(scale);
-      log(`Скорость UI: x${scale}. (${source})`);
+      if (factor !== 1) {
+        log(`Скорость UI: x${base} × ${factor} (фаза карт) = x${scale}. (${source})`);
+      } else {
+        log(`Скорость UI: x${base}. (${source})`);
+      }
     }
 
     function ensureOverlay() {
@@ -389,8 +468,10 @@
       speedBtn.addEventListener("click", () => {
         const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
         state.uiSpeedIndex = (state.uiSpeedIndex + 1) % levels.length;
-        const nextScale = levels[state.uiSpeedIndex];
-        applyUiSpeedScale(nextScale, "ui-button");
+        if (state.diceAnimBoostActive) {
+          state.diceAnimPrevScale = getSelectedUiSpeed();
+        }
+        applyBattleTweenScale("ui-button");
         updateOverlay();
       });
 
@@ -403,7 +484,7 @@
       state.speedButton = speedBtn;
       const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
       state.uiSpeedIndex = 0;
-      applyUiSpeedScale(levels[state.uiSpeedIndex], "init");
+      applyBattleTweenScale("init");
       updateOverlay();
     }
 
@@ -754,20 +835,8 @@
     function setPhase(nextPhase, source) {
       if (!nextPhase && state.currentPhase) {
         log(`Phase ended: ${state.currentPhase}`);
-        if (state.currentPhase === "DICE_SELECTION" && state.diceAnimBoostActive) {
-          const backTo =
-            typeof state.diceAnimPrevScale === "number" && Number.isFinite(state.diceAnimPrevScale)
-              ? state.diceAnimPrevScale
-              : 1;
-          if (window.TweenMax && typeof TweenMax.globalTimeScale === "function") {
-            TweenMax.globalTimeScale(backTo);
-          }
-          state.diceAnimBoostActive = false;
-          state.diceAnimPrevScale = 1;
-          if (state.diceAnimBoostTimer) {
-            clearTimeout(state.diceAnimBoostTimer);
-            state.diceAnimBoostTimer = null;
-          }
+        if (state.currentPhase === "DICE_SELECTION") {
+          restoreDiceAnimBoost("phase-end:DICE_SELECTION");
         }
         if (state.currentPhase === "CARD_SELECTION") {
           state.autoSelectionPendingKey = null;
@@ -785,6 +854,7 @@
         }
         state.currentPhase = null;
         state.currentPhaseSource = null;
+        applyBattleTweenScale("phase-clear");
         return;
       }
       if (!nextPhase) return;
@@ -793,6 +863,7 @@
         state.currentPhase = nextPhase;
         state.currentPhaseSource = source;
         log(`Phase started: ${nextPhase} (source: ${source})`);
+        applyBattleTweenScale(`phase-start:${source}`);
         if (nextPhase === "DICE_SELECTION") {
           triggerDiceRollAnimationBoost(`phase-start:${source}`);
         }
@@ -804,20 +875,8 @@
 
       if (state.currentPhase !== nextPhase) {
         log(`Phase ended: ${state.currentPhase}`);
-        if (state.currentPhase === "DICE_SELECTION" && state.diceAnimBoostActive) {
-          const backTo =
-            typeof state.diceAnimPrevScale === "number" && Number.isFinite(state.diceAnimPrevScale)
-              ? state.diceAnimPrevScale
-              : 1;
-          if (window.TweenMax && typeof TweenMax.globalTimeScale === "function") {
-            TweenMax.globalTimeScale(backTo);
-          }
-          state.diceAnimBoostActive = false;
-          state.diceAnimPrevScale = 1;
-          if (state.diceAnimBoostTimer) {
-            clearTimeout(state.diceAnimBoostTimer);
-            state.diceAnimBoostTimer = null;
-          }
+        if (state.currentPhase === "DICE_SELECTION") {
+          restoreDiceAnimBoost("phase-change:DICE_SELECTION");
         }
         if (state.currentPhase === "CARD_SELECTION") {
           state.autoSelectionPendingKey = null;
@@ -836,6 +895,7 @@
         state.currentPhase = nextPhase;
         state.currentPhaseSource = source;
         log(`Phase started: ${nextPhase} (source: ${source})`);
+        applyBattleTweenScale(`phase-change:${source}`);
         if (nextPhase === "DICE_SELECTION") {
           triggerDiceRollAnimationBoost(`phase-change:${source}`);
         }
@@ -1008,7 +1068,7 @@
       if (state.diceRecommendationUiWaitKey === snapKey) return;
       state.diceRecommendationUiWaitKey = snapKey;
 
-      const uiMs = diceSelectionUiReadyDelay();
+      const waitMs = dicePhaseWaitDelay();
       const gen = (state.cardSelectionGen += 1);
       setTimeout(() => {
         state.diceRecommendationUiWaitKey = null;
@@ -1031,9 +1091,9 @@
         if (state.diceAutoPendingKey === snapKey) return;
         state.diceAutoPendingKey = snapKey;
 
-        const delay = allTargetNow ? Math.min(300, randomDelay()) : randomDelay();
+        const gapMs = diceActionGapDelay({ cap: allTargetNow });
         log(
-          `Фаза 2: автовыбор кубиков через ${delay}ms. dices=${JSON.stringify(mask)}.${allTargetNow ? " Все 6 целевые -> переходим сразу в «В бой!»." : ""} rolls=${rollsNum}. (${sourceLabel})`
+          `Фаза 2: автовыбор кубиков через ${gapMs}ms (UI ~${waitMs}ms). dices=${JSON.stringify(mask)}.${allTargetNow ? " Все 6 целевые -> переходим сразу в «В бой!»." : ""} rolls=${rollsNum}. (${sourceLabel})`
         );
 
         setTimeout(() => {
@@ -1080,7 +1140,7 @@
 
             if (itemsNow.length !== mask.length) {
               if (attempt < 5) {
-                setTimeout(() => applyMaskAndClick(attempt + 1), 120);
+                setTimeout(() => applyMaskAndClick(attempt + 1), scaleDelay(CONFIG.delays.retryPoll));
                 return;
               }
               log(
@@ -1104,7 +1164,7 @@
               const readyForFight = selectedCount === mask.length && btnText.startsWith("В бой");
               if (!readyForFight) {
                 if (attempt < 6) {
-                  setTimeout(() => applyMaskAndClick(attempt + 1), 140);
+                  setTimeout(() => applyMaskAndClick(attempt + 1), scaleDelay(CONFIG.delays.retryPollReady));
                   return;
                 }
                 log(
@@ -1127,8 +1187,8 @@
             }
           };
           applyMaskAndClick(0);
-        }, delay);
-      }, uiMs);
+        }, gapMs);
+      }, waitMs);
     }
 
     function runPhaseOneCardChoice(phaseCards, sourceLabel) {
@@ -1153,7 +1213,7 @@
         return;
       }
 
-      const uiMs = cardSelectionUiReadyDelay();
+      const waitMs = cardPhaseWaitDelay();
 
       if (!state.autoEnabled) {
         if (state.lastRecommendationKey === scoredKey) return;
@@ -1168,9 +1228,9 @@
           if (state.lastRecommendationKey === scoredKey) return;
           state.lastRecommendationKey = scoredKey;
           log(
-            `Фаза 1 рекомендация (после ~${uiMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
+            `Фаза 1 рекомендация (после ~${waitMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
           );
-        }, uiMs);
+        }, waitMs);
         return;
       }
 
@@ -1193,9 +1253,9 @@
           return;
         }
 
-        const delay = randomDelay();
+        const gapMs = cardActionGapDelay();
         log(
-          `Фаза 1: автовыбор — анимация UI ~${uiMs}ms, затем ещё ${delay}ms — idx=${best.idx}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
+          `Фаза 1: автовыбор — UI ~${waitMs}ms + пауза ${gapMs}ms — idx=${best.idx}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
         );
 
         setTimeout(() => {
@@ -1213,8 +1273,8 @@
           }
 
           performAutobattleCardDom(best.idx, best, sourceLabel, scoredKey, gen);
-        }, delay);
-      }, uiMs);
+        }, gapMs);
+      }, waitMs);
     }
 
     function handleBattleSnapshot(battle, source) {
@@ -1323,7 +1383,7 @@
       updateOverlay();
       log(`Battle detected from "${source}".`);
 
-      const delay = randomDelay();
+      const delay = scaleDelay(CONFIG.delays.battleReady);
       setTimeout(() => {
         const stillInBattle = state.battleActive && safeGetBattlePopup();
         if (!stillInBattle) {
@@ -1362,6 +1422,7 @@
       }
       state.diceAnimBoostActive = false;
       state.diceAnimPrevScale = 1;
+      applyBattleTweenScale("battle-end");
       state.cardSelectionGen += 1;
       state.noContextLogged = false;
       state.powerErrorLogged = false;
