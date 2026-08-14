@@ -31,6 +31,8 @@
       diceRollAnimBoostScale: 3.2,
       // [Фаза 2] Длительность временного ускорения броска кубиков.
       diceRollAnimBoostDurationMs: 1400,
+      // [Глобально] Доступные скорости анимаций для кнопки "Скорость" (циклическое переключение).
+      uiSpeedLevels: [1, 1.5, 2, 3],
       // [Детектор] Частота проверки battle popup.
       popupPollMs: 600,
       // [Детектор] Сколько "промахов" popup подряд считать окончанием боя.
@@ -57,6 +59,7 @@
       diceAnimBoostActive: false,
       diceAnimPrevScale: 1,
       diceAnimBoostTimer: null,
+      uiSpeedIndex: 0,
       cardSelectionGen: 0,
       noContextLogged: false,
       powerErrorLogged: false,
@@ -69,6 +72,7 @@
       pollTimer: null,
       overlay: null,
       autoButton: null,
+      speedButton: null,
     };
 
     function log(...args) {
@@ -317,6 +321,21 @@
           state.autoButton.style.boxShadow = "none";
         }
       }
+      if (state.speedButton) {
+        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+        const idx = Math.max(0, Math.min(state.uiSpeedIndex, levels.length - 1));
+        const speed = levels[idx];
+        state.speedButton.textContent = `Скорость x${speed}`;
+      }
+    }
+
+    function applyUiSpeedScale(scale, source) {
+      if (!window.TweenMax || typeof TweenMax.globalTimeScale !== "function") {
+        log(`Скорость UI x${scale}: TweenMax.globalTimeScale недоступен. (${source})`);
+        return;
+      }
+      TweenMax.globalTimeScale(scale);
+      log(`Скорость UI: x${scale}. (${source})`);
     }
 
     function ensureOverlay() {
@@ -358,11 +377,33 @@
         updateOverlay();
       });
 
+      const speedBtn = document.createElement("button");
+      speedBtn.type = "button";
+      speedBtn.textContent = "Скорость x1";
+      speedBtn.style.cursor = "pointer";
+      speedBtn.style.border = "1px solid #777";
+      speedBtn.style.borderRadius = "6px";
+      speedBtn.style.padding = "4px 8px";
+      speedBtn.style.background = "#2b2b2b";
+      speedBtn.style.color = "#fff";
+      speedBtn.addEventListener("click", () => {
+        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+        state.uiSpeedIndex = (state.uiSpeedIndex + 1) % levels.length;
+        const nextScale = levels[state.uiSpeedIndex];
+        applyUiSpeedScale(nextScale, "ui-button");
+        updateOverlay();
+      });
+
       root.appendChild(status);
       root.appendChild(autoBtn);
+      root.appendChild(speedBtn);
       document.body.appendChild(root);
       state.overlay = root;
       state.autoButton = autoBtn;
+      state.speedButton = speedBtn;
+      const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+      state.uiSpeedIndex = 0;
+      applyUiSpeedScale(levels[state.uiSpeedIndex], "init");
       updateOverlay();
     }
 
