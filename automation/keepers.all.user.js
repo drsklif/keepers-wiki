@@ -107,7 +107,7 @@
       // [Фаза 2] Длительность временного ускорения броска кубиков.
       diceRollAnimBoostDurationMs: 1400,
       // [Глобально] Доступные скорости анимаций для кнопки "Скорость" (циклическое переключение).
-      uiSpeedLevels: [1, 1.5, 2, 3],
+      uiSpeedLevels: [1.5, 2, 3],
       // [Детектор] Частота проверки battle popup.
       popupPollMs: 600,
       // [Детектор] Сколько "промахов" popup подряд считать окончанием боя.
@@ -397,7 +397,7 @@
         }
       }
       if (state.speedButton) {
-        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
         const idx = Math.max(0, Math.min(state.uiSpeedIndex, levels.length - 1));
         const speed = levels[idx];
         state.speedButton.textContent = `Скорость x${speed}`;
@@ -454,7 +454,7 @@
 
       const speedBtn = document.createElement("button");
       speedBtn.type = "button";
-      speedBtn.textContent = "Скорость x1";
+      speedBtn.textContent = "Скорость x1.5";
       speedBtn.style.cursor = "pointer";
       speedBtn.style.border = "1px solid #777";
       speedBtn.style.borderRadius = "6px";
@@ -462,7 +462,7 @@
       speedBtn.style.background = "#2b2b2b";
       speedBtn.style.color = "#fff";
       speedBtn.addEventListener("click", () => {
-        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+        const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
         state.uiSpeedIndex = (state.uiSpeedIndex + 1) % levels.length;
         const nextScale = levels[state.uiSpeedIndex];
         applyUiSpeedScale(nextScale, "ui-button");
@@ -476,7 +476,7 @@
       state.overlay = root;
       state.autoButton = autoBtn;
       state.speedButton = speedBtn;
-      const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1];
+      const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
       state.uiSpeedIndex = 0;
       applyUiSpeedScale(levels[state.uiSpeedIndex], "init");
       updateOverlay();
