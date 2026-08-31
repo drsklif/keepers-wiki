@@ -7,6 +7,7 @@ cd "$SCRIPT_DIR"
 files=(
     "keepers.user.js"
     "battle/battle.user.js"
+    "energy/energy.user.js"
 )
 
 for file in "${files[@]}"; do
