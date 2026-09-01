@@ -1657,44 +1657,44 @@
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
-    console.warn("[KeepersHelper/Energy] Core module is missing.");
+    console.warn("[KeepersHelper/Quests] Core module is missing.");
     return;
   }
 
-  helper.registerModule("energy-claim", (core) => {
-    const STORAGE_KEY = "keepersHelper.energy.autoEnabled";
-    const NAME_WINDOW_RE = /с\s+(\d{1,2})(?::(\d{2}))?\s+до\s+(\d{1,2})(?::(\d{2}))?/i;
+  helper.registerModule("quests-claim", (core) => {
+    const STORAGE_KEY = "keepersHelper.quests.autoEnabled";
+    const LEGACY_ENERGY_KEY = "keepersHelper.energy.autoEnabled";
 
     const CONFIG = {
-      pollMs: 2000,
+      pollMs: 10000,
       userReadyPollMs: 400,
       delays: {
-        afterClaimable: 600,
-        afterClaimableJitter: 400,
+        afterReady: 400,
+        afterReadyJitter: 350,
+        betweenClaims: 350,
+        betweenClaimsJitter: 250,
       },
       maxClaimAttempts: 4,
-      claimCooldownMs: 45000,
+      claimCooldownMs: 30000,
     };
 
     const state = {
       autoEnabled: loadAutoEnabled(),
       userReady: false,
-      claiming: false,
-      claimToken: 0,
+      busy: false,
+      cycleToken: 0,
       claimAttempts: {},
+      claimCooldownUntil: {},
       lastStatusKey: null,
+      lastWaitLogKey: null,
+      lastClaimed: [],
       overlay: null,
       autoButton: null,
       pollTimer: null,
-      catalog: {},
-      windows: {},
-      shapeLogged: false,
-      visitedWindows: {},
-      claimCooldownUntil: {},
     };
 
     function log(...args) {
-      core.log("[AutoEnergy]", ...args);
+      core.log("[AutoQuests]", ...args);
     }
 
     function loadAutoEnabled() {
@@ -1702,6 +1702,9 @@
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (raw === "0") return false;
         if (raw === "1") return true;
+        const legacy = window.localStorage.getItem(LEGACY_ENERGY_KEY);
+        if (legacy === "0") return false;
+        if (legacy === "1") return true;
       } catch (_err) {
         // ignore
       }
@@ -1723,6 +1726,10 @@
       return base + extra;
     }
 
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
     function isUserReady() {
       return Boolean(
         window.app &&
@@ -1730,218 +1737,23 @@
           app.Model.user &&
           app.Model.user.quests &&
           Array.isArray(app.Model.user.quests.quests) &&
-          app.Model.user.energy &&
           app.UserUtil &&
-          app.CFGUtil &&
           app.TimeUtil &&
           app.Network &&
           typeof app.Network.command === "function" &&
-          app.EventDispatcher &&
-          app.MainPage
+          app.EventDispatcher
       );
     }
 
-    function getDailyQuests() {
-      if (!isUserReady()) return [];
-      if (app.UserUtil.getDailyQuests) return app.UserUtil.getDailyQuests() || [];
-      const list = app.Model.user.quests.quests;
+    function sendCommand(body) {
+      return new Promise((resolve) => {
+        app.Network.command(body, (response) => resolve(response || {}));
+      });
+    }
+
+    function getAllQuests() {
+      const list = app.Model.user?.quests?.quests;
       return Array.isArray(list) ? list : [];
-    }
-
-    function safeQuestName(quest) {
-      try {
-        const name = app.CFGUtil.getQuestName(quest);
-        return typeof name === "string" ? name : "";
-      } catch (_err) {
-        return "";
-      }
-    }
-
-    function functionSource(fn) {
-      try {
-        return typeof fn === "function" ? Function.prototype.toString.call(fn) : "";
-      } catch (_err) {
-        return "";
-      }
-    }
-
-    function discoverCatalogFromClient() {
-      const catalog = {};
-      const add = (type, startHour, endHour, source) => {
-        if (!type || !Number.isFinite(startHour) || !Number.isFinite(endHour)) return;
-        catalog[type] = { type, startHour, endHour, source };
-      };
-
-      const cfgSrc = functionSource(app.CFGUtil?.getQuestName);
-      const cfgRe =
-        /case\s*["']?(d_e\d+)["']?\s*:\s*return\s*"[^"]*энерг[^"]*"\.format\(\s*(\d+)\s*\+\s*app\.Model\.user\.gmt\s*,\s*(\d+)\s*\+\s*app\.Model\.user\.gmt\s*\)/g;
-      let m;
-      while ((m = cfgRe.exec(cfgSrc))) {
-        add(m[1], Number(m[2]), Number(m[3]), "CFGUtil.getQuestName");
-      }
-
-      const pageSrc = functionSource(app.QuestsPage?.create);
-      const pageRe = /case\s*["']?(d_e\d+)["']?\s*:\s*b\s*=\s*(\d+)\s*,\s*x\s*=\s*(\d+)/g;
-      while ((m = pageRe.exec(pageSrc))) {
-        if (!catalog[m[1]]) add(m[1], Number(m[2]), Number(m[3]), "QuestsPage.create");
-      }
-
-      return catalog;
-    }
-
-    function parseHoursFromText(text) {
-      if (typeof text !== "string" || !text) return null;
-      const m = text.match(NAME_WINDOW_RE);
-      if (!m) return null;
-      return {
-        startHour: Number(m[1]),
-        startMinute: m[2] != null ? Number(m[2]) : 0,
-        endHour: Number(m[3]),
-        endMinute: m[4] != null ? Number(m[4]) : 0,
-      };
-    }
-
-    function pickFinite(obj, keys) {
-      if (!obj || typeof obj !== "object") return null;
-      for (const key of keys) {
-        const value = Number(obj[key]);
-        if (Number.isFinite(value)) return value;
-      }
-      return null;
-    }
-
-    function extractWindowFromQuestFields(quest) {
-      const data = quest.data && typeof quest.data === "object" ? quest.data : {};
-      const bags = [quest, data];
-      const startHourKeys = ["startHour", "fromHour", "h1", "hs", "sh"];
-      const endHourKeys = ["endHour", "toHour", "h2", "he", "eh"];
-      for (const bag of bags) {
-        const startHour = pickFinite(bag, startHourKeys);
-        const endHour = pickFinite(bag, endHourKeys);
-        if (startHour != null && endHour != null) {
-          return { startHour, endHour, startMinute: 0, endMinute: 0, source: "quest-fields" };
-        }
-      }
-
-      const startTs = pickFinite(quest, ["st", "nst", "from", "start"]);
-      const endTs = pickFinite(quest, ["et", "net", "to", "end"]);
-      const now = app.TimeUtil.now();
-      if (
-        startTs != null &&
-        endTs != null &&
-        endTs > startTs &&
-        startTs > now - 8 * app.TimeUtil.D_MS &&
-        endTs < now + 8 * app.TimeUtil.D_MS
-      ) {
-        const start = app.TimeUtil._getMoscowTime(startTs);
-        const end = app.TimeUtil._getMoscowTime(endTs);
-        return {
-          startHour: start.getHours(),
-          startMinute: start.getMinutes(),
-          endHour: end.getHours(),
-          endMinute: end.getMinutes(),
-          startTs,
-          endTs,
-          source: "quest-timestamps",
-        };
-      }
-      return null;
-    }
-
-    function formatHourLabel(hour, minute) {
-      const h = Math.max(0, Number(hour) || 0);
-      const m = Math.max(0, Number(minute) || 0);
-      return m ? `${h}:${String(m).padStart(2, "0")}` : `${h}`;
-    }
-
-    function windowLabel(win) {
-      if (!win) return "";
-      return `${formatHourLabel(win.startHour, win.startMinute)}–${formatHourLabel(win.endHour, win.endMinute)}`;
-    }
-
-    function buildQuestWindow(quest) {
-      const gmt = Number(app.Model.user.gmt) || 0;
-      const fromFields = extractWindowFromQuestFields(quest);
-      if (fromFields) {
-        return { ...fromFields, label: windowLabel(fromFields) };
-      }
-
-      const fromName = parseHoursFromText(safeQuestName(quest));
-      if (fromName) {
-        return { ...fromName, source: "quest-name", label: windowLabel(fromName) };
-      }
-
-      const fromCatalog = state.catalog[quest.type];
-      if (fromCatalog) {
-        const win = {
-          startHour: fromCatalog.startHour + gmt,
-          startMinute: 0,
-          endHour: fromCatalog.endHour + gmt,
-          endMinute: 0,
-          source: fromCatalog.source,
-        };
-        win.label = windowLabel(win);
-        return win;
-      }
-      return null;
-    }
-
-    function isEnergyQuest(quest) {
-      if (!quest) return false;
-      if (state.catalog[quest.type]) return true;
-      if (/^d_e\d+$/i.test(quest.type || "")) return true;
-      const name = safeQuestName(quest);
-      if (/энерг/i.test(name) && NAME_WINDOW_RE.test(name)) return true;
-      return Boolean(quest.reward && Number(quest.reward.energy) > 0 && NAME_WINDOW_RE.test(name));
-    }
-
-    function getEnergyQuests() {
-      return getDailyQuests().filter(isEnergyQuest);
-    }
-
-    function refreshWindows(source) {
-      state.catalog = discoverCatalogFromClient();
-      const quests = getEnergyQuests();
-      const next = {};
-      for (const quest of quests) {
-        const key = quest.type || String(quest.id);
-        next[key] = buildQuestWindow(quest);
-      }
-      state.windows = next;
-
-      const catalogLine = Object.values(state.catalog)
-        .map((w) => `${w.type} ${w.startHour}:00–${w.endHour}:00 (${w.source})`)
-        .join(", ");
-      const questLine = quests
-        .map((q) => {
-          const win = next[q.type || String(q.id)];
-          return `${q.type}#${q.id} ${win ? `${win.label} [${win.source}]` : "окно неизвестно"}`;
-        })
-        .join(", ");
-      log(
-        `Расписание энергии (${source}):` +
-          (catalogLine ? ` клиент [${catalogLine}]` : " клиент не распарсился") +
-          `; квесты [${questLine || "нет"}]; gmt=${app.Model.user.gmt ?? "?"}.`
-      );
-
-      if (!state.shapeLogged && quests.length > 0) {
-        state.shapeLogged = true;
-        log(
-          "Поля energy-квестов:",
-          quests.map((q) => ({
-            id: q.id,
-            type: q.type,
-            keys: Object.keys(q),
-            data: q.data ?? null,
-            reward: q.reward ?? null,
-            progress: q.progress,
-            required: q.required,
-            rt: q.rt,
-            name: safeQuestName(q),
-          }))
-        );
-      }
-      return quests;
     }
 
     function isClaimed(quest) {
@@ -1950,162 +1762,229 @@
 
     function isProgressComplete(quest) {
       try {
-        return Boolean(app.UserUtil.isQuestComplete(quest));
+        if (app.UserUtil && typeof app.UserUtil.isQuestComplete === "function") {
+          return Boolean(app.UserUtil.isQuestComplete(quest));
+        }
       } catch (_err) {
-        const progress = Number(quest.progress) || 0;
-        const required = Number(quest.required) || 0;
-        return required > 0 && progress >= required;
+        // fall through
       }
+      const progress = Number(quest?.progress) || 0;
+      const required = Number(quest?.required) || 0;
+      return required > 0 && progress >= required;
+    }
+
+    function isSkipped(quest) {
+      if (!quest) return true;
+      if (quest.type === "d_gb") {
+        try {
+          if (app.UserUtil && typeof app.UserUtil.isVKODR === "function" && app.UserUtil.isVKODR()) {
+            return true;
+          }
+        } catch (_err) {
+          // keep
+        }
+      }
+      return false;
     }
 
     function isClaimable(quest) {
-      if (!quest || isClaimed(quest)) return false;
-      // Energy quests stay progress=0 until UserQuestsVisit; the live window is the real gate.
-      if (getWindowPhase(quest).phase === "now") return true;
+      if (!quest || isClaimed(quest) || isSkipped(quest)) return false;
       return isProgressComplete(quest);
     }
 
-    function getQuestWindow(quest) {
-      const key = quest.type || String(quest.id);
-      if (!state.windows[key]) {
-        state.windows[key] = buildQuestWindow(quest);
-      }
-      return state.windows[key];
-    }
-
-    function getWindowBounds(quest) {
-      const spec = getQuestWindow(quest);
-      if (!spec || !app.TimeUtil) return null;
-      if (spec.startTs != null && spec.endTs != null) {
-        return {
-          start: new Date(spec.startTs),
-          end: new Date(spec.endTs),
-        };
-      }
-      const start = app.TimeUtil._getMoscowTime(app.TimeUtil.now());
-      app.TimeUtil.resetDate(start);
-      start.setHours(spec.startHour, spec.startMinute || 0, 0, 0);
-      const end = app.TimeUtil._getMoscowTime(app.TimeUtil.now());
-      app.TimeUtil.resetDate(end);
-      end.setHours(spec.endHour, spec.endMinute || 0, 0, 0);
-      return { start, end };
-    }
-
-    function getWindowPhase(quest) {
-      const spec = getQuestWindow(quest);
-      const now = app.TimeUtil.now();
-      if (spec?.startTs != null && spec?.endTs != null) {
-        if (now < spec.startTs) {
-          const untilStart = spec.startTs - now;
-          const deep = untilStart > 5 * app.TimeUtil.M_MS && untilStart < app.TimeUtil.H_MS ? 1 : 2;
-          return {
-            phase: "before",
-            text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}`,
-          };
-        }
-        if (now < spec.endTs) return { phase: "now", text: "сейчас" };
-        return { phase: "after", text: "завтра" };
-      }
-      const bounds = getWindowBounds(quest);
-      if (!bounds) return { phase: "unknown", text: spec?.label || quest.type };
-      const moscowNow = app.TimeUtil._getMoscowTime(now);
-      const untilStart = bounds.start.getTime() - moscowNow.getTime();
-      if (untilStart > 0) {
-        const deep = untilStart > 5 * app.TimeUtil.M_MS && untilStart < app.TimeUtil.H_MS ? 1 : 2;
-        return {
-          phase: "before",
-          text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}`,
-        };
-      }
-      const untilEnd = bounds.end.getTime() - moscowNow.getTime();
-      if (untilEnd > 0) return { phase: "now", text: "сейчас" };
-      return { phase: "after", text: "завтра" };
-    }
-
-    function windowVisitKey(quest) {
-      const spec = getQuestWindow(quest);
-      const moscow = app.TimeUtil._getMoscowTime(app.TimeUtil.now());
-      const day = `${moscow.getFullYear()}-${moscow.getMonth() + 1}-${moscow.getDate()}`;
-      return `${quest.id}:${spec?.label || quest.type}:${day}`;
-    }
-
-    function describeQuest(quest) {
-      const spec = getQuestWindow(quest);
-      const label = spec?.label || quest.type;
-      if (isClaimed(quest)) return `${label}: получено`;
-      if (isClaimable(quest)) return `${label}: можно забрать`;
-      return `${label}: ${getWindowPhase(quest).text}`;
-    }
-
     function getClaimableQuests() {
-      return getEnergyQuests().filter(isClaimable);
+      return getAllQuests().filter(isClaimable);
     }
 
-    function getEnergyHudEls() {
+    function questLabel(quest) {
       try {
-        return app.MainPage.getCFG()?.resources?.energy?.els || null;
+        const name = app.CFGUtil?.getQuestName?.(quest);
+        if (typeof name === "string" && name) return name;
       } catch (_err) {
-        return null;
+        // fall through
       }
+      return quest?.type || String(quest?.id || "?");
     }
 
-    function refreshEnergyHud() {
-      const energy = app.Model.user?.energy;
-      const els = getEnergyHudEls();
-      if (energy && els && els.value) {
-        const html =
-          app.Utils && typeof app.Utils.toMoney === "function"
-            ? app.Utils.toMoney(energy.v)
-            : String(energy.v);
-        els.value.innerHTML = html;
-        els.value.className = energy.v >= energy.max ? "red" : "";
+    function formatReward(quest, response) {
+      const reward = response?.quest?.reward || quest?.reward || {};
+      const parts = [];
+      if (reward.energy) parts.push(`энергия +${reward.energy}`);
+      if (reward.gold) parts.push(`золото +${reward.gold}`);
+      if (reward.gems) parts.push(`кристаллы +${reward.gems}`);
+      if (reward.exp) parts.push(`опыт +${reward.exp}`);
+      if (reward.dust) parts.push(`пыль +${reward.dust}`);
+      if (reward.tickets) parts.push(`билеты +${reward.tickets}`);
+      if (parts.length > 0) return parts.join(", ");
+      if (response?.drop?.list?.length) return "дроп";
+      return "награда";
+    }
+
+    function refreshResourcesHud() {
+      try {
+        const energy = app.Model.user?.energy;
+        const els = app.MainPage?.getCFG?.()?.resources?.energy?.els;
+        if (energy && els && els.value) {
+          const html =
+            app.Utils && typeof app.Utils.toMoney === "function"
+              ? app.Utils.toMoney(energy.v)
+              : String(energy.v);
+          els.value.innerHTML = html;
+          els.value.className = energy.v >= energy.max ? "red" : "";
+        }
+      } catch (_err) {
+        // HUD from event
       }
       try {
         app.EventDispatcher.emit("user resources changed");
       } catch (_err) {
-        // HUD already written above
+        // ignore
       }
     }
 
-    function applyEnergyRewardIfNeeded(before, response, quest) {
+    function applyEnergyIfNeeded(before, response, quest) {
       const after = Number(app.Model.user?.energy?.v);
-      if (Number.isFinite(before) && Number.isFinite(after) && after !== before) {
-        return { before, after, applied: "server" };
-      }
+      if (Number.isFinite(before) && Number.isFinite(after) && after !== before) return;
       const fromUser = Number(response?.user?.energy?.v);
       if (Number.isFinite(fromUser) && Number.isFinite(before) && fromUser !== before) {
         app.Model.user.energy.v = fromUser;
-        if (response.user.energy.max != null) {
-          app.Model.user.energy.max = response.user.energy.max;
-        }
-        return { before, after: fromUser, applied: "response" };
+        return;
       }
       const reward = Number(quest?.reward?.energy);
       if (Number.isFinite(before) && Number.isFinite(reward) && reward > 0) {
         app.Model.user.energy.v = before + reward;
-        return { before, after: before + reward, applied: "reward" };
       }
-      return { before, after, applied: "none" };
+    }
+
+    function tokenAlive(token) {
+      return token === state.cycleToken && state.autoEnabled;
+    }
+
+    async function refreshQuestList(token) {
+      const response = await sendCommand({ cmd: "UserQuestsVisit" });
+      if (!tokenAlive(token)) return;
+      if (response.error) {
+        log("UserQuestsVisit ошибка", response.error.code ?? response.error);
+      }
+    }
+
+    function findNextStage(type) {
+      return getAllQuests().find((entry) => entry && entry.type === type && !isClaimed(entry));
+    }
+
+    async function claimQuest(quest, token) {
+      if (Date.now() < (state.claimCooldownUntil[quest.id] || 0)) return;
+      const energyBefore = Number(app.Model.user?.energy?.v);
+      const claimedId = quest.id;
+      const claimedType = quest.type;
+      // Как в UI: прячем кнопку до ответа. Сервер сам подменит объект
+      // следующим этапом; после ответа этот rt трогать нельзя.
+      if (!isClaimed(quest)) {
+        quest.rt = app.TimeUtil.now();
+      }
+      log(`${claimedType}: UserQuestComplete id=${claimedId}.`);
+      const response = await sendCommand({ cmd: "UserQuestComplete", quest: claimedId });
+      if (!tokenAlive(token)) return;
+      if (response.error) {
+        if (Number(quest.rt) > 0) quest.rt = 0;
+        const n = (state.claimAttempts[claimedId] || 0) + 1;
+        if (n >= CONFIG.maxClaimAttempts) {
+          state.claimAttempts[claimedId] = 0;
+          state.claimCooldownUntil[claimedId] = Date.now() + CONFIG.claimCooldownMs;
+          log(
+            `${claimedType}: ошибка ${response.error.code ?? ""}. Пауза ${Math.round(CONFIG.claimCooldownMs / 1000)}с.`
+          );
+        } else {
+          state.claimAttempts[claimedId] = n;
+          log(`${claimedType}: повтор ${n}/${CONFIG.maxClaimAttempts} — ${response.error.code ?? ""}`);
+        }
+        return;
+      }
+      applyEnergyIfNeeded(energyBefore, response, quest);
+      try {
+        if (response.drop && app.UserUtil?.processChestDrop) {
+          app.UserUtil.processChestDrop(response.drop);
+        }
+      } catch (_err) {
+        // merged by Network
+      }
+      refreshResourcesHud();
+      delete state.claimAttempts[claimedId];
+      delete state.claimCooldownUntil[claimedId];
+      const text = formatReward(quest, response);
+      state.lastClaimed = [`${questLabel(quest)}: ${text}`, ...state.lastClaimed].slice(0, 8);
+      const next = findNextStage(claimedType);
+      if (next) {
+        log(
+          `${claimedType}: получено — ${text}. Следующий этап ${next.progress}/${next.required} id=${next.id}.`
+        );
+      } else {
+        log(`${claimedType}: получено — ${text}.`);
+      }
+    }
+
+    async function runCycle(token, source) {
+      const beforeCount = getClaimableQuests().length;
+      await refreshQuestList(token);
+      if (!tokenAlive(token)) return;
+
+      let round = 0;
+      while (tokenAlive(token) && round < 8) {
+        const claimable = getClaimableQuests();
+        if (claimable.length === 0) {
+          if (round === 0) logWaitOnce("idle", `Нет готовых наград (${source}).`);
+          return;
+        }
+        if (round === 0 && (claimable.length !== beforeCount || source !== "poll")) {
+          log(`Готово к получению: ${claimable.length} (${source}).`);
+        }
+        round += 1;
+        for (const quest of claimable) {
+          if (!tokenAlive(token)) return;
+          if (!isClaimable(quest)) continue;
+          await claimQuest(quest, token);
+          await sleep(jitterDelay(CONFIG.delays.betweenClaims, CONFIG.delays.betweenClaimsJitter));
+        }
+      }
+    }
+
+    function describeSnapshot() {
+      const claimable = getClaimableQuests();
+      const lines = [];
+      if (claimable.length > 0) {
+        lines.push(`Можно забрать: ${claimable.length}`);
+        for (const quest of claimable.slice(0, 6)) {
+          lines.push(`  ${questLabel(quest)} (${quest.progress}/${quest.required})`);
+        }
+      } else {
+        lines.push("Готовых наград нет");
+      }
+      if (state.lastClaimed.length > 0) {
+        lines.push("Недавно:");
+        for (const line of state.lastClaimed.slice(0, 5)) {
+          lines.push(`  ${line}`);
+        }
+      }
+      if (state.busy) lines.push("Сейчас: проверка");
+      return lines.join("\n");
     }
 
     function overlayStatusText() {
-      if (!state.userReady) return "Энергия: ждём модель";
-      const lines = getEnergyQuests().map(describeQuest);
-      return lines.length > 0 ? lines.join("\n") : "Энергия: нет квестов";
+      if (!state.userReady) return "Задания: ждём модель";
+      return describeSnapshot();
     }
 
     function updateOverlay() {
-      if (state.autoButton) {
-        state.autoButton.title = overlayStatusText();
-        if (state.autoEnabled) {
-          state.autoButton.style.background = "#0b7fff";
-          state.autoButton.style.borderColor = "#60a8ff";
-          state.autoButton.style.boxShadow = "0 0 8px rgba(11, 127, 255, 0.6)";
-        } else {
-          state.autoButton.style.background = "#2b2b2b";
-          state.autoButton.style.borderColor = "#777";
-          state.autoButton.style.boxShadow = "none";
-        }
+      if (!state.autoButton) return;
+      state.autoButton.title = overlayStatusText();
+      if (state.autoEnabled) {
+        state.autoButton.style.background = "#0b7fff";
+        state.autoButton.style.borderColor = "#60a8ff";
+        state.autoButton.style.boxShadow = "0 0 8px rgba(11, 127, 255, 0.6)";
+      } else {
+        state.autoButton.style.background = "#2b2b2b";
+        state.autoButton.style.borderColor = "#777";
+        state.autoButton.style.boxShadow = "none";
       }
     }
 
@@ -2122,27 +2001,31 @@
     function ensureOverlay() {
       if (state.overlay) return;
 
-      const host = document.getElementById("ab-overlay");
       const autoBtn = document.createElement("button");
       styleControlButton(autoBtn);
-      autoBtn.textContent = "Энергия";
+      autoBtn.textContent = "Задания";
       autoBtn.addEventListener("click", () => {
         state.autoEnabled = !state.autoEnabled;
         saveAutoEnabled();
         if (!state.autoEnabled) {
-          state.claimToken += 1;
-          state.claiming = false;
+          state.cycleToken += 1;
+          state.busy = false;
         }
-        log("Автоэнергия:", state.autoEnabled ? "вкл" : "выкл");
+        log("Автозадания:", state.autoEnabled ? "вкл" : "выкл");
         updateOverlay();
       });
 
+      const host =
+        document.getElementById("ab-overlay") ||
+        document.getElementById("ad-overlay") ||
+        document.getElementById("aa-overlay") ||
+        document.getElementById("ae-overlay");
       if (host) {
         host.appendChild(autoBtn);
         state.overlay = host;
       } else {
         const root = document.createElement("div");
-        root.id = "ae-overlay";
+        root.id = "aq-overlay";
         root.style.position = "fixed";
         root.style.top = "12px";
         root.style.left = "12px";
@@ -2166,142 +2049,54 @@
       updateOverlay();
     }
 
-    function markQuestClaimed(quest) {
-      if (!quest.rt) {
-        quest.rt = app.TimeUtil.now();
-      }
-      try {
-        app.UserUtil.setQuestByID(quest.id, quest);
-      } catch (_err) {
-        // model already holds the same object
-      }
+    function logWaitOnce(key, ...args) {
+      if (state.lastWaitLogKey === key) return;
+      state.lastWaitLogKey = key;
+      log(...args);
     }
 
-    function onClaimSuccess(quest, token, energyBefore, response) {
-      if (token !== state.claimToken) return;
-      const applied = applyEnergyRewardIfNeeded(energyBefore, response, quest);
-      markQuestClaimed(quest);
-      refreshEnergyHud();
-      log(
-        `${quest.type}: получено.` +
-          (Number.isFinite(applied.before) && Number.isFinite(applied.after)
-            ? ` энергия ${applied.before} → ${applied.after} (${applied.applied}).`
-            : "")
-      );
-      state.claiming = false;
-      delete state.claimAttempts[quest.id];
-      delete state.claimCooldownUntil[quest.id];
-      updateOverlay();
-    }
+    function scheduleCycle(source) {
+      if (state.busy) return;
+      if (!state.autoEnabled) return;
 
-    function retryClaim(quest, token, reason) {
-      if (token !== state.claimToken) return;
-      const n = (state.claimAttempts[quest.id] || 0) + 1;
-      state.claiming = false;
-      if (n >= CONFIG.maxClaimAttempts) {
-        state.claimAttempts[quest.id] = 0;
-        state.claimCooldownUntil[quest.id] = Date.now() + CONFIG.claimCooldownMs;
-        log(
-          `${quest.type}: ошибка (${reason}). Пауза ${Math.round(CONFIG.claimCooldownMs / 1000)}с, потом ещё раз.`
-        );
-        return;
-      }
-      state.claimAttempts[quest.id] = n;
-      log(`${quest.type}: повтор ${n}/${CONFIG.maxClaimAttempts} — ${reason}.`);
-    }
-
-    function sendUserQuestsVisit(quest, token, done) {
-      const key = windowVisitKey(quest);
-      if (state.visitedWindows[key]) {
-        done();
-        return;
-      }
-      state.visitedWindows[key] = true;
-      log(
-        `${quest.type}: UserQuestsVisit (окно открыто, в модели ${quest.progress}/${quest.required}, rt=${quest.rt || 0}).`
-      );
-      app.Network.command({ cmd: "UserQuestsVisit" }, () => {
-        if (token !== state.claimToken) return;
-        done();
-      });
-    }
-
-    function performClaim(quest, token) {
-      if (token !== state.claimToken) return;
-      if (!state.autoEnabled) {
-        state.claiming = false;
-        return;
-      }
-      if (!isClaimable(quest)) {
-        state.claiming = false;
-        return;
-      }
-
-      sendUserQuestsVisit(quest, token, () => {
-        if (token !== state.claimToken) return;
-        if (!state.autoEnabled || !isClaimable(quest)) {
-          state.claiming = false;
+      state.busy = true;
+      const token = (state.cycleToken += 1);
+      const waitMs =
+        source === "poll" || source === "boot"
+          ? jitterDelay(CONFIG.delays.afterReady, CONFIG.delays.afterReadyJitter)
+          : 0;
+      setTimeout(async () => {
+        if (!tokenAlive(token)) {
+          state.busy = false;
           return;
         }
-        const energyBefore = Number(app.Model.user?.energy?.v);
-        const byWindow = getWindowPhase(quest).phase === "now" && !isProgressComplete(quest);
-        log(
-          `${quest.type}: UserQuestComplete id=${quest.id}` +
-            (byWindow ? " (по окну, прогресс ещё 0)." : ".")
-        );
-        app.Network.command({ cmd: "UserQuestComplete", quest: quest.id }, (response) => {
-          if (token !== state.claimToken) return;
-          if (!state.autoEnabled) {
-            state.claiming = false;
-            return;
-          }
-          if (response && response.error) {
-            retryClaim(
-              quest,
-              token,
-              `ошибка сервера ${response.error?.code ?? ""}`.trim()
-            );
-            return;
-          }
-          onClaimSuccess(quest, token, energyBefore, response || {});
-        });
-      });
-    }
-
-    function scheduleClaim(quest, source) {
-      if (!state.autoEnabled) return;
-      if (state.claiming) return;
-      if (Date.now() < (state.claimCooldownUntil[quest.id] || 0)) return;
-
-      state.claiming = true;
-      const token = (state.claimToken += 1);
-      const waitMs = jitterDelay(CONFIG.delays.afterClaimable, CONFIG.delays.afterClaimableJitter);
-      log(`${quest.type}: можно забрать (${source}), команда через ${waitMs}ms.`);
-      setTimeout(() => performClaim(quest, token), waitMs);
+        try {
+          await runCycle(token, source);
+        } catch (err) {
+          log("Цикл заданий упал:", err);
+        } finally {
+          if (token === state.cycleToken) state.busy = false;
+          updateOverlay();
+        }
+      }, waitMs);
     }
 
     function scan(source) {
       if (!isUserReady()) return;
-      if (source === "boot" || Object.keys(state.windows).length === 0) {
-        refreshWindows(source);
-      }
-      const quests = getEnergyQuests();
-      const statusKey = quests.map(describeQuest).join("|");
+      const claimable = getClaimableQuests();
+      const statusKey = `${state.busy ? "busy" : "idle"}|${claimable.map((q) => q.id).join(",")}|${state.lastClaimed[0] || ""}`;
       if (statusKey !== state.lastStatusKey) {
-        if (source !== "boot" && quests.some((q) => !state.windows[q.type || String(q.id)])) {
-          refreshWindows(source);
-        }
         state.lastStatusKey = statusKey;
-        if (quests.length > 0) {
-          log(`Статус: ${statusKey}. (${source})`);
-        }
         updateOverlay();
       }
-
       if (!state.autoEnabled) return;
-      const claimable = getClaimableQuests();
-      if (claimable.length === 0) return;
-      scheduleClaim(claimable[0], source);
+      if (source === "poll" || source === "boot") {
+        scheduleCycle(source);
+        return;
+      }
+      if (claimable.length > 0 && !state.busy) {
+        scheduleCycle(source);
+      }
     }
 
     function hookEvents() {
@@ -2315,11 +2110,6 @@
         const original = app.EventUtil.PROCESS_EVENT.bind(app.EventUtil);
         app.EventUtil.PROCESS_EVENT = function patchedProcessEvent(event) {
           try {
-            if (event && event.type === "GAME_MESSAGE" && typeof event.message === "string") {
-              if (/энерг/i.test(event.message)) {
-                log("GAME_MESSAGE про энергию:", event.message);
-              }
-            }
             if (event && event.type === "UPDATE" && event.user && event.user.quests) {
               setTimeout(() => scan("event:UPDATE.quests"), 50);
             }
@@ -2351,7 +2141,7 @@
 
     ensureOverlay();
     waitForUser();
-    log("Energy claim module initialized.");
+    log("Quests claim module initialized.");
   });
 })();
 
@@ -2659,7 +2449,9 @@
       });
 
       const host =
-        document.getElementById("ab-overlay") || document.getElementById("ae-overlay");
+        document.getElementById("ab-overlay") ||
+        document.getElementById("aq-overlay") ||
+        document.getElementById("ae-overlay");
       if (host) {
         host.appendChild(autoBtn);
         state.overlay = host;
@@ -3613,6 +3405,7 @@
 
       const host =
         document.getElementById("ab-overlay") ||
+        document.getElementById("aq-overlay") ||
         document.getElementById("ae-overlay") ||
         document.getElementById("aa-overlay");
       if (host) {

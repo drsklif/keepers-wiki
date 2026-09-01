@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 files=(
     "keepers.user.js"
     "battle/battle.user.js"
-    "energy/energy.user.js"
+    "quests/quests.user.js"
     "arena/arena.user.js"
     "dungeon/dungeon.user.js"
 )

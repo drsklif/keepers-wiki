@@ -302,7 +302,9 @@
       });
 
       const host =
-        document.getElementById("ab-overlay") || document.getElementById("ae-overlay");
+        document.getElementById("ab-overlay") ||
+        document.getElementById("aq-overlay") ||
+        document.getElementById("ae-overlay");
       if (host) {
         host.appendChild(autoBtn);
         state.overlay = host;

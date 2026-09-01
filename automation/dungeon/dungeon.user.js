@@ -655,6 +655,7 @@
 
       const host =
         document.getElementById("ab-overlay") ||
+        document.getElementById("aq-overlay") ||
         document.getElementById("ae-overlay") ||
         document.getElementById("aa-overlay");
       if (host) {
