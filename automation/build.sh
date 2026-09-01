@@ -9,6 +9,7 @@ files=(
     "battle/battle.user.js"
     "energy/energy.user.js"
     "arena/arena.user.js"
+    "dungeon/dungeon.user.js"
 )
 
 for file in "${files[@]}"; do
