@@ -15,10 +15,11 @@
       pollMs: 2000,
       userReadyPollMs: 400,
       delays: {
-        afterClaimable: 400,
-        afterClaimableJitter: 350,
+        afterClaimable: 600,
+        afterClaimableJitter: 400,
       },
-      maxClaimAttempts: 5,
+      maxClaimAttempts: 4,
+      claimCooldownMs: 45000,
     };
 
     const state = {
@@ -27,7 +28,6 @@
       claiming: false,
       claimToken: 0,
       claimAttempts: {},
-      blockedKey: null,
       lastStatusKey: null,
       overlay: null,
       autoButton: null,
@@ -35,6 +35,8 @@
       catalog: {},
       windows: {},
       shapeLogged: false,
+      visitedWindows: {},
+      claimCooldownUntil: {},
     };
 
     function log(...args) {
@@ -288,8 +290,11 @@
       return quests;
     }
 
-    function isClaimable(quest) {
-      if (!quest || quest.rt) return false;
+    function isClaimed(quest) {
+      return Number(quest?.rt) > 0;
+    }
+
+    function isProgressComplete(quest) {
       try {
         return Boolean(app.UserUtil.isQuestComplete(quest));
       } catch (_err) {
@@ -297,6 +302,13 @@
         const required = Number(quest.required) || 0;
         return required > 0 && progress >= required;
       }
+    }
+
+    function isClaimable(quest) {
+      if (!quest || isClaimed(quest)) return false;
+      // Energy quests stay progress=0 until UserQuestsVisit; the live window is the real gate.
+      if (getWindowPhase(quest).phase === "now") return true;
+      return isProgressComplete(quest);
     }
 
     function getQuestWindow(quest) {
@@ -332,28 +344,41 @@
         if (now < spec.startTs) {
           const untilStart = spec.startTs - now;
           const deep = untilStart > 5 * app.TimeUtil.M_MS && untilStart < app.TimeUtil.H_MS ? 1 : 2;
-          return { text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}` };
+          return {
+            phase: "before",
+            text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}`,
+          };
         }
-        if (now < spec.endTs) return { text: "сейчас" };
-        return { text: "завтра" };
+        if (now < spec.endTs) return { phase: "now", text: "сейчас" };
+        return { phase: "after", text: "завтра" };
       }
       const bounds = getWindowBounds(quest);
-      if (!bounds) return { text: spec?.label || quest.type };
+      if (!bounds) return { phase: "unknown", text: spec?.label || quest.type };
       const moscowNow = app.TimeUtil._getMoscowTime(now);
       const untilStart = bounds.start.getTime() - moscowNow.getTime();
       if (untilStart > 0) {
         const deep = untilStart > 5 * app.TimeUtil.M_MS && untilStart < app.TimeUtil.H_MS ? 1 : 2;
-        return { text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}` };
+        return {
+          phase: "before",
+          text: `через ${app.TimeUtil.formatToHumanTime(untilStart, deep)}`,
+        };
       }
       const untilEnd = bounds.end.getTime() - moscowNow.getTime();
-      if (untilEnd > 0) return { text: "сейчас" };
-      return { text: "завтра" };
+      if (untilEnd > 0) return { phase: "now", text: "сейчас" };
+      return { phase: "after", text: "завтра" };
+    }
+
+    function windowVisitKey(quest) {
+      const spec = getQuestWindow(quest);
+      const moscow = app.TimeUtil._getMoscowTime(app.TimeUtil.now());
+      const day = `${moscow.getFullYear()}-${moscow.getMonth() + 1}-${moscow.getDate()}`;
+      return `${quest.id}:${spec?.label || quest.type}:${day}`;
     }
 
     function describeQuest(quest) {
       const spec = getQuestWindow(quest);
       const label = spec?.label || quest.type;
-      if (quest.rt) return `${label}: получено`;
+      if (isClaimed(quest)) return `${label}: получено`;
       if (isClaimable(quest)) return `${label}: можно забрать`;
       return `${label}: ${getWindowPhase(quest).text}`;
     }
@@ -511,23 +536,40 @@
       );
       state.claiming = false;
       delete state.claimAttempts[quest.id];
-      if (state.blockedKey && state.blockedKey.startsWith(`${quest.id}:`)) {
-        state.blockedKey = null;
-      }
+      delete state.claimCooldownUntil[quest.id];
       updateOverlay();
     }
 
     function retryClaim(quest, token, reason) {
       if (token !== state.claimToken) return;
       const n = (state.claimAttempts[quest.id] || 0) + 1;
-      state.claimAttempts[quest.id] = n;
       state.claiming = false;
       if (n >= CONFIG.maxClaimAttempts) {
-        state.blockedKey = `${quest.id}:${quest.progress}/${quest.required}`;
-        log(`${quest.type}: останавливаем попытки (${reason}). Ждём изменения статуса квеста.`);
+        state.claimAttempts[quest.id] = 0;
+        state.claimCooldownUntil[quest.id] = Date.now() + CONFIG.claimCooldownMs;
+        log(
+          `${quest.type}: ошибка (${reason}). Пауза ${Math.round(CONFIG.claimCooldownMs / 1000)}с, потом ещё раз.`
+        );
         return;
       }
+      state.claimAttempts[quest.id] = n;
       log(`${quest.type}: повтор ${n}/${CONFIG.maxClaimAttempts} — ${reason}.`);
+    }
+
+    function sendUserQuestsVisit(quest, token, done) {
+      const key = windowVisitKey(quest);
+      if (state.visitedWindows[key]) {
+        done();
+        return;
+      }
+      state.visitedWindows[key] = true;
+      log(
+        `${quest.type}: UserQuestsVisit (окно открыто, в модели ${quest.progress}/${quest.required}, rt=${quest.rt || 0}).`
+      );
+      app.Network.command({ cmd: "UserQuestsVisit" }, () => {
+        if (token !== state.claimToken) return;
+        done();
+      });
     }
 
     function performClaim(quest, token) {
@@ -541,34 +583,41 @@
         return;
       }
 
-      const energyBefore = Number(app.Model.user?.energy?.v);
-      log(`${quest.type}: UserQuestComplete id=${quest.id}.`);
-      app.Network.command({ cmd: "UserQuestComplete", quest: quest.id }, (response) => {
+      sendUserQuestsVisit(quest, token, () => {
         if (token !== state.claimToken) return;
-        if (!state.autoEnabled) {
+        if (!state.autoEnabled || !isClaimable(quest)) {
           state.claiming = false;
           return;
         }
-        if (response && response.error) {
-          try {
-            if (app.Utils && typeof app.Utils.processErrors === "function") {
-              app.Utils.processErrors(response.error);
-            }
-          } catch (_err) {
-            // ignore
+        const energyBefore = Number(app.Model.user?.energy?.v);
+        const byWindow = getWindowPhase(quest).phase === "now" && !isProgressComplete(quest);
+        log(
+          `${quest.type}: UserQuestComplete id=${quest.id}` +
+            (byWindow ? " (по окну, прогресс ещё 0)." : ".")
+        );
+        app.Network.command({ cmd: "UserQuestComplete", quest: quest.id }, (response) => {
+          if (token !== state.claimToken) return;
+          if (!state.autoEnabled) {
+            state.claiming = false;
+            return;
           }
-          retryClaim(quest, token, `ошибка сервера ${response.error?.code ?? ""}`.trim());
-          return;
-        }
-        onClaimSuccess(quest, token, energyBefore, response || {});
+          if (response && response.error) {
+            retryClaim(
+              quest,
+              token,
+              `ошибка сервера ${response.error?.code ?? ""}`.trim()
+            );
+            return;
+          }
+          onClaimSuccess(quest, token, energyBefore, response || {});
+        });
       });
     }
 
     function scheduleClaim(quest, source) {
       if (!state.autoEnabled) return;
       if (state.claiming) return;
-      const blockKey = `${quest.id}:${quest.progress}/${quest.required}`;
-      if (state.blockedKey === blockKey) return;
+      if (Date.now() < (state.claimCooldownUntil[quest.id] || 0)) return;
 
       state.claiming = true;
       const token = (state.claimToken += 1);
