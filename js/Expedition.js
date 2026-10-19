@@ -5,9 +5,9 @@ if (!app.Expedition) {
     };
 
     app.Expedition = {
-        create() {
+        create(cfg) {
             if (app.Model.user.expedition) {
-                this._create0();
+                this._create0(cfg);
             } else {
                 this._createClosed();
             }
@@ -44,7 +44,7 @@ if (!app.Expedition) {
             p.els.popup.appendChild(app.Utils.createHelpPopup('Expeditions'));
 
             const contentRequiredHeight = 250;
-            const availableHeight0 = app.LAYOUT.getClientWHS0(76);
+            const availableHeight0 = app.LAYOUT.getClientWHS0(app.Menu.getReservedHeight());
             const availableHeight = Math.min(contentRequiredHeight, availableHeight0);
 
             let top = (availableHeight0 - availableHeight) / 2;
@@ -57,7 +57,7 @@ if (!app.Expedition) {
 
             app.Popups.add(p);
         },
-        _create0() {
+        _create0(cfg) {
             const p = app.Popups.createPopup1({
                 id: 'EXPEDITION',
                 display: {nexit: 1, gems: 1},
@@ -79,7 +79,7 @@ if (!app.Expedition) {
 
             p.tmp = {};
 
-            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
             const contentRequiredHeight = 628;
 
             let availableHeight = Math.min(contentRequiredHeight, availableHeight0);
@@ -91,7 +91,9 @@ if (!app.Expedition) {
 
             p.scroll.availableHeight = availableHeight;
 
-            p.cfg.tabs = {active: 1};
+            p.cfg.tabs = {
+                active: cfg && cfg.tabs && cfg.tabs.active || 1
+            };
             let tab = p.cfg.tabs.t1 = {els: {}};
             tab.els.main = app.Utils.createA({class: 'brd_block_tab', style: 'left: 30px', text: 'Экспедиции'}, this._onTab0Clicked.bind(this, p, 1));
             tab.els.main.appendChild(tab.els.note = app.Utils.createSPAN({class: 'menu_note menu_note_g', style: 'right: -5px; display: none'}));
@@ -102,7 +104,7 @@ if (!app.Expedition) {
             tab.els.main.appendChild(tab.els.note = app.Utils.createSPAN({class: 'menu_note menu_note_g', style: 'right: -5px; display: none'}));
             p.els.brd_r.appendChild(tab.els.main);
 
-            this._onTab0Clicked(p, 1);
+            this._onTab0Clicked(p, p.cfg.tabs.active);
 
             p.els.brd_r.appendChild(app.Utils.createHelpPopup('Expeditions'));
 
@@ -487,7 +489,7 @@ if (!app.Expedition) {
 
             p.els.brd_bg.className = 'brd_block_bg';
 
-            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
             const contentRequiredHeight = 628;
 
             let availableHeight = Math.min(contentRequiredHeight, availableHeight0);
@@ -540,9 +542,44 @@ if (!app.Expedition) {
             app.Utils.removeAllChild(p.scroll.el);
         },
 
+        // минимальная сумма мощи ≥ requiredPower, при равенстве меньше карт
+        pickCards(cards, requiredPower) {
+            cards = cards.filter(card => card.power > 0);
+            const maxPower = cards.reduce((max, card) => Math.max(max, card.power), 0);
+            // сумма ≥ requiredPower + maxPower не оптимальна: без любой карты она всё ещё ≥ requiredPower
+            const sumLimit = requiredPower + maxPower;
+            const minCards = new Uint8Array(sumLimit).fill(255);
+            minCards[0] = 0;
+            // took — биты «карта i уменьшила minCards[sum]»: восстановление по одному указателю на сумму берёт карту дважды
+            const words = (sumLimit + 31) >>> 5, took = new Uint32Array(cards.length * words);
+            cards.forEach((card, i) => {
+                for (let sum = sumLimit - 1; sum >= card.power; sum--) {
+                    const withCard = minCards[sum - card.power] + 1;
+                    if (withCard < minCards[sum]) {
+                        minCards[sum] = withCard;
+                        took[i * words + (sum >>> 5)] |= 1 << (sum & 31);
+                    }
+                }
+            });
+            let sum = requiredPower;
+            while (sum < sumLimit && minCards[sum] === 255) sum++;
+            if (sum >= sumLimit) return null;
+            const picked = [];
+            for (let i = cards.length - 1; i >= 0 && sum > 0; i--) {
+                if (took[i * words + (sum >>> 5)] & (1 << (sum & 31))) {
+                    picked.push(cards[i].id);
+                    sum -= cards[i].power;
+                }
+            }
+            return picked;
+        },
+
         _create1_content0(p) {
-            let el_list, el_duration, el_required, el_a;
-            p.els.brd_r.appendChild(el_list = app.Utils.createDIV({class: 'list_s', style: 'position: relative; left: 76px; width: 310px; padding: 7px; margin-top: 5px; min-height: 120px; cursor: pointer'}, null,
+            let el_list, el_duration, el_required, el_a, el_pick, el_pick_note;
+            // inflight — клики по картам без ответа сервера; окно не пересобирается и не сверяется, пока они в пути
+            let picking = false, inflight = 0;
+            const selectionUpdates = [];
+            p.els.brd_r.appendChild(el_list = app.Utils.createDIV({class: 'list_s', style: 'position: relative; left: 76px; width: 310px; padding: 7px; margin-top: 5px'}, null,
                 [
                     app.Utils.createDIV({class: 'cntr'}, null, [
                         app.Utils.createDIV({}, null, [
@@ -550,13 +587,24 @@ if (!app.Expedition) {
                             el_duration = app.Utils.createDIV({class: 'mt5'}),
                             el_required = app.Utils.createDIV({class: 'mt5'}),
                             app.Utils.createDIV({class: 'mt5', html: 'Награда: <span class="res_icon res_icon_inline res_nexit"></span> <span class="info">{0}</span>'.format(p.tmp.cfgLocation.reward.nexit)}),
-                            el_a = app.Utils.createA({class: 'btn_g mlra_ab ' + (p.tmp.cfgLocation.premium ? 'btn_gs_a' : 'btn_gs_c'), style: 'bottom: 2px'})
+                            app.Utils.createDIV({style: 'position: relative; height: 36px; margin-top: 10px'}, null, [
+                                el_pick = app.Utils.createA({class: 'btn_g btn_gs', style: 'left: 34px'}),
+                                el_a = app.Utils.createA({class: 'btn_g ' + (p.tmp.cfgLocation.premium ? 'btn_gs_a' : 'btn_gs_c'), style: 'left: 161px'})
+                            ]),
+                            el_pick_note = app.Utils.createDIV({class: 'mt5 minor small_text'})
                         ])
                     ])
                 ]));
             el_duration.innerHTML = 'Длительность: <span class="info"> {0}</span>'.format(app.TimeUtil.formatToHumanTime(p.tmp.cfgLocation.duration.run, 1));
+            const updatePick = () => {
+                const premium = app.UserUtil.isPremiumActive();
+                el_pick.className = 'btn_g ' + (premium ? 'btn_gs' : 'btn_gs_a') + (picking ? ' bw' : '');
+                el_pick.innerText = picking ? 'Подбираем…' : 'Автоподбор';
+                el_pick_note.innerText = premium ? 'Подберёт карты на минимально нужную мощь' : 'Автоподбор доступен с премиумом';
+            };
             el_a.innerText = 'Отправить';
             el_a.onclick = () => {
+                if (picking) return;
                 if (app.Utils.hasClass(el_a, 'bw')) {
                     app.Utils.showInfo('Недостаточно мощи');
                     return;
@@ -607,6 +655,50 @@ if (!app.Expedition) {
             }, []);
             cards.sort((e1, e2) => e2.power - e1.power);
 
+            el_pick.onclick = () => {
+                if (picking || inflight) return;
+                if (!app.UserUtil.isPremiumActive()) {
+                    app.loadJS1('Premium', () => app.Premium.info1());
+                    return;
+                }
+                const picked = this.pickCards(cards.map(entry => ({id: entry.card.id, power: entry.power})), p.tmp.location.pwr);
+                if (!picked) {
+                    app.Utils.showInfo('Не хватает мощи свободных карт');
+                    return;
+                }
+                const current = p.tmp.location.l;
+                const queue = current.filter(card => !picked.includes(card)).map(card => ({cmd: 'ExpeditionRemoveCard', location: p.tmp.id, card}))
+                    .concat(picked.filter(card => !current.includes(card)).map(card => ({cmd: 'ExpeditionAddCard', location: p.tmp.id, card})));
+                if (!queue.length) return;
+                picking = true;
+                updatePick();
+                const finish = () => {
+                    picking = false;
+                    updatePick();
+                    update();
+                };
+                // закрытие окна прерывает подбор, иначе новое окно гоняется с ним за те же карты
+                const next = () => {
+                    if (p.tmp._closed) return;
+                    if (!queue.length) {
+                        finish();
+                        return;
+                    }
+                    app.Network.command(queue.shift(), data => {
+                        if (p.tmp._closed) return;
+                        p.tmp.location = app.Model.user.expedition.l[p.tmp.id];
+                        selectionUpdates.forEach(updateOnSelectionChange => updateOnSelectionChange());
+                        if (data.error) {
+                            finish();
+                            app.Utils.showInfo('Не удалось завершить подбор. Попробуйте ещё раз.');
+                            return;
+                        }
+                        next();
+                    });
+                };
+                next();
+            };
+
             cards.forEach((entry, i) => {
                 const cfg = app.Cards.createCard(entry.card, {stones: 1});
                 const col = i % 4,
@@ -614,49 +706,44 @@ if (!app.Expedition) {
                 cfg.main.style = `top: ${40 + row * 160}px; left: ${30 + col * 107}px; transform: matrix(0.73, 0, 0, 0.73, 0, 0)`;
                 cfg.main.appendChild(app.Utils.createDIV({class: 'rarity', style: 'top: 190px; left: auto', html: '<span class="str ">Мощь: </span><span class="info ">{0}</span>'.format(app.Utils.toMoney(entry.power))}));
                 cfg.main.onclick = () => {
-                    if (selected) {
-                        app.Network.command({cmd: 'ExpeditionRemoveCard', location: p.tmp.id, card: entry.card.id}, data => {
-                            if (data.error) {
-                                app.Utils.showInfo('Попробуйте позже');
-                            } else {
-                                p.tmp.location = app.Model.user.expedition.l[p.tmp.id];
-                                selected = !selected;
-                                updateOnSelectionChange();
-                                update();
-                            }
-                        });
-                    } else {
-                        app.Network.command({cmd: 'ExpeditionAddCard', location: p.tmp.id, card: entry.card.id}, data => {
-                            if (data.error) {
-                                app.Utils.showInfo('Попробуйте позже');
-                            } else {
-                                p.tmp.location = app.Model.user.expedition.l[p.tmp.id];
-                                selected = !selected;
-                                updateOnSelectionChange();
-                                update();
-                            }
-                        });
-                    }
+                    if (picking) return;
+                    const cmd = selected ? 'ExpeditionRemoveCard' : 'ExpeditionAddCard';
+                    showSelected(!selected);
+                    inflight++;
+                    app.Network.command({cmd, location: p.tmp.id, card: entry.card.id}, data => {
+                        inflight--;
+                        if (p.tmp._closed) return;
+                        if (data.error) {
+                            app.Utils.showInfo('Попробуйте позже');
+                        }
+                        p.tmp.location = app.Model.user.expedition.l[p.tmp.id];
+                        if (inflight) return;
+                        selectionUpdates.forEach(updateOnSelectionChange => updateOnSelectionChange());
+                        update();
+                    });
                 };
                 p.scroll.el.appendChild(cfg.main);
 
                 const el_done = app.Utils.createSPAN({class: 'sh_card_done', style: `top: ${85 + row * 160}px; left: ${65 + col * 107}px; transform: scale(1); pointer-events: none`});
                 p.scroll.el.appendChild(el_done);
 
-                let selected = p.tmp.location.l.includes(entry.card.id);
-                const updateOnSelectionChange = () => {
+                let selected;
+                const showSelected = value => {
+                    selected = value;
                     el_done.style.display = selected ? '' : 'none';
                     if (selected) {
                         app.Utils.addClass(cfg.main, 'bw');
                     } else {
                         app.Utils.removeClass(cfg.main, 'bw');
                     }
-                }
+                };
+                const updateOnSelectionChange = () => showSelected(p.tmp.location.l.includes(entry.card.id));
+                selectionUpdates.push(updateOnSelectionChange);
                 updateOnSelectionChange();
             });
 
-            p.els.wrap.style.top = '150px';
-            p.els.wrap.style.height = (p.scroll.availableHeight - 150) + 'px';
+            p.els.wrap.style.top = '181px';
+            p.els.wrap.style.height = (p.scroll.availableHeight - 181) + 'px';
             p.scroll.contentRequiredHeight = 40 + 160 + (160 * Math.ceil(cards.length / 4));
             p.scroll.update();
 
@@ -670,7 +757,8 @@ if (!app.Expedition) {
                 }
 
                 const location = app.Model.user.expedition.l[p.tmp.id];
-                if (location !== p.tmp.location) {
+                updatePick();
+                if (location !== p.tmp.location && !picking && !inflight) {
                     this._create1(p.tmp.id);
                 } else {
                     const cardsPower = location.l.reduce((acc, cardId) => acc + app.UserUtil.getCardPower(cardId), 0);

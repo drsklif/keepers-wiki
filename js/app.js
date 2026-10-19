@@ -1,4 +1,4 @@
-var app = (function() {
+var app = (function () {
 
     console.log('%cЭта функция браузера предназначена только для разработчиков.', 'color: red; -webkit-text-stroke: 1px black; font-size: 30px');
 
@@ -9,7 +9,7 @@ var app = (function() {
             if (app && app.Utils) {
                 return app.Utils.getRequestParameters();
             } else {
-                const getRequestParameters = function() {
+                const getRequestParameters = function () {
                     let s1 = location.search.substring(1, location.search.length).split('&'),
                         r = {},
                         s2;
@@ -55,12 +55,14 @@ var app = (function() {
         } else {
             const host = window.location.host;
             if (host.startsWith('localhost')
+                || host.startsWith('test')
                 || host.startsWith('l1')
                 || host.startsWith('l2')
                 || host.startsWith('l3')
                 || host.startsWith('192.168.')
                 || host.startsWith('95.170.152.16')
                 || host.startsWith('37.192.45.123')
+                || host.startsWith('103.71.20.207')
             ) {
                 platform = 'localhost';
             } else if (host.indexOf('98934') !== -1 && host.indexOf('yandex') !== -1) {
@@ -87,13 +89,13 @@ var app = (function() {
                 RESOURCE_URL = '';
                 break;
             case 'YANDEX':
-                RESOURCE_URL = 'https://ya.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://ya.keepers.mobi';
                 break;
             case 'VK':
-                RESOURCE_URL = 'https://vk.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://vk.keepers.mobi';
                 break;
             case 'OK':
-                RESOURCE_URL = 'https://od.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://od.keepers.mobi';
                 break;
             case 'SPACES':
                 RESOURCE_URL = 'https://spaces.keepers.mobi';
@@ -154,29 +156,51 @@ var app = (function() {
     var _LAYOUT_BASE;
 
     var css = {
-        v: '328',
+        v: '368',
 
         list: [
-            {alias: 'style', file: _getResourceURL(_getPlatform() === 'SITE' ? '/style.min.css' : '/wrap.style.min.css'), v: '1'},
-            {alias: 'common', file: _getResourceURL(_getPlatform() === 'SITE' ? '/common.min.css' : '/wrap.common.min.css'), v: '1'},
-            {alias: 'vk_750', file: _getResourceURL(_getPlatform() === 'SITE' ? '/style_sq.min.css' : '/wrap.style_sq.min.css'), v: '1'}
+            {
+                alias: 'style',
+                file: _getResourceURL(_getPlatform() === 'SITE' ? '/style.min.css' : '/wrap.style.min.css'),
+                v: '1'
+            },
+            {
+                alias: 'common',
+                file: _getResourceURL(_getPlatform() === 'SITE' ? '/common.min.css' : '/wrap.common.min.css'),
+                v: '1'
+            },
+            {
+                alias: 'artifacts',
+                file: _getResourceURL(_getPlatform() === 'SITE' ? '/artifacts.min.css' : '/wrap.artifacts.min.css'),
+                v: '1'
+            },
+            {
+                alias: 'echo',
+                file: _getResourceURL(_getPlatform() === 'SITE' ? '/echo.min.css' : '/wrap.echo.min.css'),
+                v: '1'
+            },
+            {
+                alias: 'vk_750',
+                file: _getResourceURL(_getPlatform() === 'SITE' ? '/style_sq.min.css' : '/wrap.style_sq.min.css'),
+                v: '1'
+            }
         ],
 
-        getCFG: function(alias) {
+        getCFG: function (alias) {
             let list = this.list, cfg;
             for (let i = 0; i < list.length; i++) {
                 if ((cfg = list[i]).alias === alias) return cfg;
             }
         },
-        getPath: function(alias) {
+        getPath: function (alias) {
             let cfg = this.getCFG(alias);
             return cfg.file + '?v=' + this.v + '.' + cfg.v;
         },
-        addInlineStyles: function(styles) {
+        addInlineStyles: function (styles) {
             let style = document.createElement('style');
             style.type = "text/css";
             // browser detection (based on prototype.js)
-            if(!!(window.attachEvent && !window.opera)) {
+            if (!!(window.attachEvent && !window.opera)) {
                 style.styleSheet.cssText = styles;
             } else {
                 style.appendChild(document.createTextNode(styles));
@@ -188,6 +212,9 @@ var app = (function() {
 
     let test = false;
     test = window._GAMEPUSH === 1;
+    if (!test) {
+        test = _getPlatform() === 'localhost';
+    }
 
     let js_min = test ? 0 : 1;
     let js_v = test ? Math.random() : '';
@@ -195,99 +222,106 @@ var app = (function() {
         v: '10.0.98' + js_v,
         list: [
             {alias: 'EventDispatcher', file: _getResourceURL('/js/EventDispatcher.js'), v: '3'},
-            {alias: 'Utils', file: _getResourceURL('/js/Utils' + (js_min ? '.min.js' : '.js')), v: '64'},
+            {alias: 'Utils', file: _getResourceURL('/js/Utils' + (js_min ? '.min.js' : '.js')), v: '69'},
             {alias: 'TimeUtil', file: _getResourceURL('/js/TimeUtil.js'), v: '2'},
-            {alias: 'CFGUtil', file: _getResourceURL('/js/CFGUtil' + (js_min ? '.min.js' : '.js')), v: '27'},
-            {alias: 'UserUtil', file: _getResourceURL('/js/UserUtil' + (js_min ? '.min.js' : '.js')), v: '106'},
+            {alias: 'CFGUtil', file: _getResourceURL('/js/CFGUtil' + (js_min ? '.min.js' : '.js')), v: '31'},
+            {alias: 'UserUtil', file: _getResourceURL('/js/UserUtil' + (js_min ? '.min.js' : '.js')), v: '110'},
             {alias: 'GuildUtil', file: _getResourceURL('/js/GuildUtil' + (js_min ? '.min.js' : '.js')), v: '10'},
-            {alias: 'EventUtil', file: _getResourceURL('/js/EventUtil.js'), v: '21'},
-            {alias: 'Model', file: _getResourceURL('/js/Model' + (js_min ? '.min.js' : '.js')), v: '41'},
+            {alias: 'EventUtil', file: _getResourceURL('/js/EventUtil.js'), v: '22'},
+            {alias: 'Model', file: _getResourceURL('/js/Model' + (js_min ? '.min.js' : '.js')), v: '47'},
             {alias: 'Mailru', file: _getResourceURL('/js/Mailru.js'), v: '5'},
-            {alias: 'World', file: _getResourceURL('/js/World.js'), v: '9'},
-            {alias: 'Game', file: _getResourceURL('/js/Game' + (js_min ? '.min.js' : '.js')), v: '74'},
+            {alias: 'World', file: _getResourceURL('/js/World.js'), v: '10'},
+            {alias: 'Game', file: _getResourceURL('/js/Game' + (js_min ? '.min.js' : '.js')), v: '80'},
             {alias: 'Dice', file: _getResourceURL('/js/Dice.js'), v: '1'},
-            {alias: 'Menu', file: _getResourceURL('/js/Menu.js'), v: '6'},
-            {alias: 'MainPage', file: _getResourceURL('/js/MainPage' + (js_min ? '.min.js' : '.js')), v: '385'},
-            {alias: 'ProfilePage', file: _getResourceURL('/js/ProfilePage' + (js_min ? '.min.js' : '.js')), v: '18'},
-            {alias: 'CardsPage', file: _getResourceURL('/js/CardsPage' + (js_min ? '.min.js' : '.js')), v: '18'},
-            {alias: 'Cards', file: _getResourceURL('/js/Cards' + (js_min ? '.min.js' : '.js')), v: '66'},
-            {alias: 'Campaign', file: _getResourceURL('/js/Campaign' + (js_min ? '.min.js' : '.js')), v: '13'},
+            {alias: 'Menu', file: _getResourceURL('/js/Menu.js'), v: '8'},
+            {alias: 'MainPage', file: _getResourceURL('/js/MainPage' + (js_min ? '.min.js' : '.js')), v: '416'},
+            {alias: 'ProfilePage', file: _getResourceURL('/js/ProfilePage' + (js_min ? '.min.js' : '.js')), v: '20'},
+            {alias: 'CardsPage', file: _getResourceURL('/js/CardsPage' + (js_min ? '.min.js' : '.js')), v: '23'},
+            {alias: 'Cards', file: _getResourceURL('/js/Cards' + (js_min ? '.min.js' : '.js')), v: '74'},
+            {alias: 'Campaign', file: _getResourceURL('/js/Campaign' + (js_min ? '.min.js' : '.js')), v: '14'},
             {alias: 'ChestsPage', file: _getResourceURL('/js/ChestsPage' + (js_min ? '.min.js' : '.js')), v: '8'},
-            {alias: 'Chests', file: _getResourceURL('/js/Chests' + (js_min ? '.min.js' : '.js')), v: '35'},
-            {alias: 'Chat', file: _getResourceURL('/js/Chat' + (js_min ? '.min.js' : '.js')), v: '86'},
-            {alias: 'ShopPage', file: _getResourceURL('/js/ShopPage' + (js_min ? '.min.js' : '.js')), v: '23'},
-            {alias: 'ArenaPage', file: _getResourceURL('/js/ArenaPage' + (js_min ? '.min.js' : '.js')), v: '15'},
-            {alias: 'Popups', file: _getResourceURL('/js/Popups' + (js_min ? '.min.js' : '.js')), v: '16'},
-            {alias: 'Forum', file: _getResourceURL('/js/Forum' + (js_min ? '.min.js' : '.js')), v: '27'},
-            {alias: 'QuestsPage', file: _getResourceURL('/js/QuestsPage' + (js_min ? '.min.js' : '.js')), v: '35'},
-            {alias: 'RatingsPage', file: _getResourceURL('/js/RatingsPage' + (js_min ? '.min.js' : '.js')), v: '18'},
-            {alias: 'GuildPage', file: _getResourceURL('/js/GuildPage' + (js_min ? '.min.js' : '.js')), v: '55'},
+            {alias: 'Chests', file: _getResourceURL('/js/Chests' + (js_min ? '.min.js' : '.js')), v: '42'},
+            {alias: 'Chat', file: _getResourceURL('/js/Chat' + (js_min ? '.min.js' : '.js')), v: '89'},
+            {alias: 'ShopPage', file: _getResourceURL('/js/ShopPage' + (js_min ? '.min.js' : '.js')), v: '24'},
+            {alias: 'ArenaPage', file: _getResourceURL('/js/ArenaPage' + (js_min ? '.min.js' : '.js')), v: '17'},
+            {alias: 'Popups', file: _getResourceURL('/js/Popups' + (js_min ? '.min.js' : '.js')), v: '20'},
+            {alias: 'Popups2', file: _getResourceURL('/js/Popups2' + ('.js')), v: '2'},
+            {alias: 'Forum', file: _getResourceURL('/js/Forum' + (js_min ? '.min.js' : '.js')), v: '28'},
+            {alias: 'QuestsPage', file: _getResourceURL('/js/QuestsPage' + (js_min ? '.min.js' : '.js')), v: '39'},
+            {alias: 'RatingsPage', file: _getResourceURL('/js/RatingsPage' + (js_min ? '.min.js' : '.js')), v: '21'},
+            {alias: 'GuildPage', file: _getResourceURL('/js/GuildPage' + (js_min ? '.min.js' : '.js')), v: '58'},
             {alias: 'GuildRaids', file: _getResourceURL('/js/GuildRaids' + (js_min ? '.min.js' : '.js')), v: '8'},
-            {alias: 'DungeonPage', file: _getResourceURL('/js/DungeonPage' + (js_min ? '.min.js' : '.js')), v: '5'},
-            {alias: 'BattleReplay', file: _getResourceURL('/js/BattleReplay' + (js_min ? '.min.js' : '.js')), v: '9'},
-            {alias: 'BattlePage', file: _getResourceURL('/js/BattlePage' + (js_min ? '.min.js' : '.js')), v: '19'},
-            {alias: 'LeaguePage', file: _getResourceURL('/js/LeaguePage' + (js_min ? '.min.js' : '.js')), v: '30'},
+            {alias: 'DungeonPage', file: _getResourceURL('/js/DungeonPage' + (js_min ? '.min.js' : '.js')), v: '6'},
+            {alias: 'BattleReplay', file: _getResourceURL('/js/BattleReplay' + (js_min ? '.min.js' : '.js')), v: '10'},
+            {alias: 'BattlePage', file: _getResourceURL('/js/BattlePage' + (js_min ? '.min.js' : '.js')), v: '20'},
+            {alias: 'LeaguePage', file: _getResourceURL('/js/LeaguePage' + (js_min ? '.min.js' : '.js')), v: '34'},
+            {alias: 'LeagueSeason', file: _getResourceURL('/js/LeagueSeason.js'), v: '8'},
             {alias: 'SoundManager', file: _getResourceURL('/js/SoundManager.js'), v: '7'},
-            {alias: 'Tutorial', file: _getResourceURL('/js/Tutorial' + (js_min ? '.min.js' : '.js')), v: '4'},
-            {alias: 'AchievementsPage', file: _getResourceURL('/js/AchievementsPage' + (js_min ? '.min.js' : '.js')), v: '7'},
-            {alias: 'DailyRewards', file: _getResourceURL('/js/DailyRewards.js'), v: '7'},
-            {alias: 'Notifications', file: _getResourceURL('/js/Notifications.js'), v: '38'},
-            {alias: 'Purchase', file: _getResourceURL('/js/Purchase' + (js_min ? '.min.js' : '.js')), v: '38'},
-            {alias: 'Shop', file: _getResourceURL('/js/Shop.js'), v: '5'},
+            {alias: 'Tutorial', file: _getResourceURL('/js/Tutorial' + (js_min ? '.min.js' : '.js')), v: '5'},
+            {
+                alias: 'AchievementsPage',
+                file: _getResourceURL('/js/AchievementsPage' + (js_min ? '.min.js' : '.js')),
+                v: '7'
+            },
+            {alias: 'DailyRewards', file: _getResourceURL('/js/DailyRewards.js'), v: '8'},
+            {alias: 'Notifications', file: _getResourceURL('/js/Notifications.js'), v: '40'},
+            {alias: 'Purchase', file: _getResourceURL('/js/Purchase' + (js_min ? '.min.js' : '.js')), v: '46'},
+            {alias: 'Shop', file: _getResourceURL('/js/Shop.js'), v: '6'},
 
             {alias: 'BBCodes', file: _getResourceURL('/js/BBCodes.js'), v: '5'},
-            {alias: 'Network', file: _getResourceURL('/js/Network_4' + (js_min ? '.min.js' : '.js')), v: '24'}
+            {alias: 'Network', file: _getResourceURL('/js/Network_4' + (false && js_min ? '.min.js' : '.js')), v: '45'}
         ],
         lazyList: [
-            {alias: 'Avatars', file: _getResourceURL('/js/Avatars.js'), v: '67'},
-            {alias: 'SpherePage', file: _getResourceURL('/js/SpherePage.js'), v: '4'},
-            {alias: 'BlitzPage', file: _getResourceURL('/js/BlitzPage' + (js_min ? '.min.js' : '.js')), v: '2'},
-	    {alias: 'GuildBlitzPage', file: _getResourceURL('/js/GuildBlitzPage.js'), v: '25'},
-	    {alias: 'GuildBlitzUtil', file: _getResourceURL('/js/GuildBlitzUtil.js'), v: '5'},
-            {alias: 'SalePage', file: _getResourceURL('/js/SalePage' + (js_min ? '.min.js' : '.js')), v: '60'},
-            {alias: 'Sale1', file: _getResourceURL('/js/Sale1' + (js_min ? '.min.js' : '.js')), v: '110'},
-            {alias: 'SearchPage', file: _getResourceURL('/js/SearchPage.js'), v: '3'},
-            {alias: 'SettingsPage', file: _getResourceURL('/js/SettingsPage' + (js_min ? '.min.js' : '.js')), v: '46'},
-            {alias: 'BossPage', file: _getResourceURL('/js/BossPage.js'), v: '19'},
-            {alias: 'Agreement', file: _getResourceURL('/js/Agreement' + (js_min ? '.min.js' : '.js')), v: '18'},
+            {alias: 'Avatars', file: _getResourceURL('/js/Avatars.js'), v: '77'},
+            {alias: 'SpherePage', file: _getResourceURL('/js/SpherePage.js'), v: '5'},
+            {alias: 'BlitzPage', file: _getResourceURL('/js/BlitzPage' + (js_min ? '.min.js' : '.js')), v: '3'},
+            {alias: 'GuildBlitzPage', file: _getResourceURL('/js/GuildBlitzPage.js'), v: '33'},
+            {alias: 'GuildBlitzUtil', file: _getResourceURL('/js/GuildBlitzUtil.js'), v: '6'},
+            {alias: 'SalePage', file: _getResourceURL('/js/SalePage' + (js_min ? '.min.js' : '.js')), v: '62'},
+            {alias: 'Sale1', file: _getResourceURL('/js/Sale1' + (js_min ? '.min.js' : '.js')), v: '118'},
+            {alias: 'SearchPage', file: _getResourceURL('/js/SearchPage.js'), v: '4'},
+            {alias: 'SettingsPage', file: _getResourceURL('/js/SettingsPage' + (js_min ? '.min.js' : '.js')), v: '55'},
+            {alias: 'BossPage', file: _getResourceURL('/js/BossPage.js'), v: '20'},
+            {alias: 'Agreement', file: _getResourceURL('/js/Agreement' + (js_min ? '.min.js' : '.js')), v: '19'},
             {alias: 'Exeru', file: _getResourceURL('/js/Exeru.js'), v: '2'},
             {alias: 'Fotostrana', file: _getResourceURL('/js/Fotostrana.js'), v: '1'},
-            {alias: 'Premium', file: _getResourceURL('/js/Premium' + (js_min ? '.min.js' : '.js')), v: '51'},
-            {alias: 'Halloween', file: _getResourceURL('/js/Halloween.js'), v: '41'},
-            {alias: 'PVPT', file: _getResourceURL('/js/PVPT' + (js_min ? '.min.js' : '.js')), v: '20'},
-            {alias: 'MayEvent', file: _getResourceURL('/js/MayEvent.js'), v: '62'},
+            {alias: 'Premium', file: _getResourceURL('/js/Premium' + (js_min ? '.min.js' : '.js')), v: '52'},
+            {alias: 'Halloween', file: _getResourceURL('/js/Halloween.js'), v: '42'},
+            {alias: 'PVPT', file: _getResourceURL('/js/PVPT' + (js_min ? '.min.js' : '.js')), v: '21'},
+            {alias: 'MayEvent', file: _getResourceURL('/js/MayEvent.js'), v: '66'},
             {alias: 'OKUtil', file: _getResourceURL('/js/OKUtil.js'), v: '14' + '.' + Math.random()},
-            {alias: 'VKUtil', file: _getResourceURL('/js/VKUtil.js'), v: '46'},
+            {alias: 'VKUtil', file: _getResourceURL('/js/VKUtil.js'), v: '48'},
             {alias: 'YandexUtil', file: _getResourceURL('/js/YandexUtil.js'), v: '57.' + Math.random()},
             {alias: 'RBKUtil', file: _getResourceURL('/js/RBKUtil.js'), v: '2'},
-            {alias: 'GuildWar', file: _getResourceURL('/js/GuildWar' + (js_min ? '.min.js' : '.js')), v: '41'},
-	    {alias: 'GuildBuildings', file: _getResourceURL('/js/GuildBuildings' + '.js'), v: '5'},
-            {alias: 'Virus', file: _getResourceURL('/js/VirusPage.js'), v: '17'},
+            {alias: 'GuildWar', file: _getResourceURL('/js/GuildWar' + (js_min ? '.min.js' : '.js')), v: '42'},
+            {alias: 'GuildBuildings', file: _getResourceURL('/js/GuildBuildings' + '.js'), v: '6'},
+            {alias: 'Virus', file: _getResourceURL('/js/VirusPage.js'), v: '18'},
             {alias: 'StonesPage', file: _getResourceURL('/js/StonesPage.js'), v: '15'},
             {alias: 'MMR', file: _getResourceURL('/js/MMR.js'), v: '15'},
-            {alias: 'GuildEvent', file: _getResourceURL('/js/GuildEvent' + (js_min ? '.min.js' : '.js')), v: '7'},
+            {alias: 'GuildEvent', file: _getResourceURL('/js/GuildEvent' + (js_min ? '.min.js' : '.js')), v: '8'},
             {alias: 'GoogleReview', file: _getResourceURL('/js/GoogleReview' + (js_min ? '.min.js' : '.js')), v: '8'},
             {alias: 'Debug', file: _getResourceURL('/js/Debug.js'), v: '3'},
             {alias: 'XsollaPS3', file: _getResourceURL('/js/XsollaPS3.js'), v: '4'},
-            {alias: 'Labyrinth', file: _getResourceURL('/js/Labyrinth' + (js_min ? '.min.js' : '.js')), v: '22'},
-            {alias: 'BattlePath', file: _getResourceURL('/js/BattlePath.js'), v: '29'},
-            {alias: 'ChampT', file: _getResourceURL('/js/ChampT' + (js_min ? '.min.js' : '.js')), v: '10'},
-            {alias: 'Expedition', file: _getResourceURL('/js/Expedition.js'), v: '4'},
+            {alias: 'Labyrinth', file: _getResourceURL('/js/Labyrinth' + (js_min ? '.min.js' : '.js')), v: '24'},
+            {alias: 'BattlePath', file: _getResourceURL('/js/BattlePath.js'), v: '32'},
+            {alias: 'ChampT', file: _getResourceURL('/js/ChampT' + (js_min ? '.min.js' : '.js')), v: '11'},
+            {alias: 'Expedition', file: _getResourceURL('/js/Expedition.js'), v: '9'},
             {alias: 'OVMSDK', file: _getResourceURL('/js/OVMSDK.js'), v: '1.0' + Math.random()},
-            {alias: 'MainShopPage', file: _getResourceURL('/js/MainShopPage' + (js_min ? '.min.js' : '.js')), v: '102'},
-            {alias: 'MailPage', file: _getResourceURL('/js/MailPage' + (js_min ? '.min.js' : '.js')), v: '27'},
-            {alias: 'TrainingPage', file: _getResourceURL('/js/TrainingPage.js'), v: '4'},
+            {alias: 'MainShopPage', file: _getResourceURL('/js/MainShopPage' + (js_min ? '.min.js' : '.js')), v: '103'},
+            {alias: 'MailPage', file: _getResourceURL('/js/MailPage' + (js_min ? '.min.js' : '.js')), v: '33'},
+            {alias: 'TrainingPage', file: _getResourceURL('/js/TrainingPage.js'), v: '5'},
+            {alias: 'Presents', file: _getResourceURL('/js/Presents.js'), v: '5'},
             {alias: 'AGUtil', file: _getResourceURL('/js/AGUtil.js'), v: '3.' + Math.random()},
-            {alias: 'YandexPromoCode', file: _getResourceURL('/js/YandexPromoCode.js'), v: '3'},
-            {alias: 'MiniGame', file: _getResourceURL('/js/MiniGame.js'), v: '3'},
+            {alias: 'YandexPromoCode', file: _getResourceURL('/js/YandexPromoCode.js'), v: '4'},
+            {alias: 'MiniGame', file: _getResourceURL('/js/MiniGame.js'), v: '4'},
             {alias: 'Beeline', file: _getResourceURL('/js/Beeline.js'), v: '1.' + Math.random()},
             {alias: 'Ifree2', file: _getResourceURL('/js/Ifree2.js'), v: '1.' + Math.random()},
             {alias: 'OfferChain', file: _getResourceURL('/js/OfferChain.js'), v: '1.' + Math.random()},
             {alias: 'Playdeck', file: _getResourceURL('/js/Playdeck.js'), v: '1.' + Math.random()},
             {alias: 'GamePush', file: _getResourceURL('/js/GamePush.js'), v: '1.' + Math.random()},
-	    {alias: 'Yookassa', file: _getResourceURL('/js/Yookassa.js'), v: '1.' + Math.random()},
+            {alias: 'Yookassa', file: _getResourceURL('/js/Yookassa.js'), v: '1.' + Math.random()},
         ],
-        getCFG: function(alias) {
+        getCFG: function (alias) {
             let list = this.list, cfg;
             for (let i = 0; i < list.length; i++) {
                 if ((cfg = list[i]).alias === alias) return cfg;
@@ -297,46 +331,65 @@ var app = (function() {
                 if ((cfg = list[i]).alias === alias) return cfg;
             }
         },
-        getPath: function(alias) {
+        getPath: function (alias) {
             return this.getPath0(this.getCFG(alias));
         },
-        getPath0: function(cfg) {
+        getPath0: function (cfg) {
             return cfg.file + '?v=' + this.v + '.' + cfg.v;
         }
     };
 
     var images = {
-        v: '8.0.37',
+        v: '8.0.38',
         list: [
-            {file: _getResourceURL('/images/sprite_decor.png'), v: '12'},
-            {file: _getResourceURL('/images/sprite_gems.png'), v: '2'},
-            {file: _getResourceURL('/images/sprite_gems2.png'), v: '9'},
-            {file: _getResourceURL('/images/sprite_main.png'), v: '36'},
-            {file: _getResourceURL('/images/sprite_battle.png'), v: '7'},
-            {file: _getResourceURL('/images/sprite_bp.png'), v: '7'},
-            {file: _getResourceURL('/images/sprite_bf.png'), v: '1'},
-            {file: _getResourceURL('/images/avatars/male/1.jpg'), v: '1'},
-            {file: _getResourceURL('/images/avatars/male/2.jpg'), v: '2'},
-            {file: _getResourceURL('/images/avatars/male/3.jpg'), v: '1'},
-            {file: _getResourceURL('/images/avatars/male/4.jpg'), v: '1'},
             {file: _getResourceURL('/images/avatars/female/1.jpg'), v: '1'},
             {file: _getResourceURL('/images/avatars/female/2.jpg'), v: '1'},
             {file: _getResourceURL('/images/avatars/female/3.jpg'), v: '3'},
             {file: _getResourceURL('/images/avatars/female/4.jpg'), v: '1'},
-            {file: _getResourceURL('/images/puzzle/halloween.png'), v: '2'},
-            {file: _getResourceURL('/images/sprite_cards_icons.png'), v: '29'},
+            {file: _getResourceURL('/images/avatars/male/1.jpg'), v: '1'},
+            {file: _getResourceURL('/images/avatars/male/2.jpg'), v: '2'},
+            {file: _getResourceURL('/images/avatars/male/3.jpg'), v: '1'},
+            {file: _getResourceURL('/images/avatars/male/4.jpg'), v: '1'},
             {file: _getResourceURL('/images/brd_block_friday.jpg'), v: '2'},
-            {file: _getResourceURL('/images/labyrinth/sprite_drop.png'), v: '1'},
+            {file: _getResourceURL('/images/cards/vampire.jpg'), v: '2'},
+            {file: _getResourceURL('/images/cards/vampire2.jpg'), v: '2'},
             {file: _getResourceURL('/images/chgift.png'), v: '1'},
-            {file: _getResourceURL('/images/main_bg_640_1200.jpg'), v: '2'},
-            {file: _getResourceURL('/images/main_bg_750_750.jpg'), v: '2'},
+            {file: _getResourceURL('/images/guild_bg_640_1200.jpg'), v: '4'},
             {file: _getResourceURL('/images/guild_bg_750_750.jpg'), v: '4'},
-	    {file: _getResourceURL('/images/guild_bg_640_1200.jpg'), v: '4'},
+            {file: _getResourceURL('/images/labyrinth/sprite_drop.png'), v: '1'},
+            {file: _getResourceURL('/images/main_bg_640_1200.jpg'), v: '2'},
+            {file: _getResourceURL('/images/main_bg_640_1200_redesign.jpg'), v: '4'},
+            {file: _getResourceURL('/images/footer_rail.png'), v: '1'},
+            {file: _getResourceURL('/images/avatars/event/hb_26_w_f.jpg'), v: '1'},
+            {file: _getResourceURL('/images/avatars/event/hb_26_w_m.jpg'), v: '1'},
+            {file: _getResourceURL('/images/footer_rail.webp'), v: '1'},
+            {file: _getResourceURL('/images/footer_active.png'), v: '1'},
+            {file: _getResourceURL('/images/footer_active.webp'), v: '1'},
+            {file: _getResourceURL('/images/footer_icons.png'), v: '1'},
+            {file: _getResourceURL('/images/footer_icons.webp'), v: '1'},
+            {file: _getResourceURL('/images/main_bg_750_750.jpg'), v: '2'},
+            {file: _getResourceURL('/images/main_bg_750_750_redesign.jpg'), v: '4'},
+            {file: _getResourceURL('/images/league-season-rewards-sprite.png'), v: '1'},
+            {file: _getResourceURL('/images/present_leaf.png'), v: '1'},
+            {file: _getResourceURL('/images/puzzle/halloween.png'), v: '2'},
+            {file: _getResourceURL('/images/sprite_battle.png'), v: '11'},
+            {file: _getResourceURL('/images/sprite_bf.png'), v: '1'},
+            {file: _getResourceURL('/images/sprite_bp.png'), v: '7'},
+            {file: _getResourceURL('/images/sprite_cards_icons.png'), v: '34'},
             {file: _getResourceURL('/images/sprite_cosmos.png'), v: '4'},
+            {file: _getResourceURL('/images/sprite_decor.png'), v: '16'},
+            {file: _getResourceURL('/images/sprite_gems.png'), v: '2'},
+            {file: _getResourceURL('/images/sprite_gems2.png'), v: '9'},
             {file: _getResourceURL('/images/sprite_magic.png'), v: '4'},
-            {file: _getResourceURL('/images/present_leaf.png'), v: '1'}
+            {file: _getResourceURL('/images/sprite_main.png'), v: '39'},
+            {file: _getResourceURL('/images/sprite_ny.png'), v: '2'},
+            {file: _getResourceURL('/images/sprite_relic.png'), v: '2'},
+            {file: _getResourceURL('/images/title_plate_redesign_active.png'), v: '3'},
+            {file: _getResourceURL('/images/title_plate_redesign_disabled.png'), v: '3'},
+            {file: _getResourceURL('/images/title_plate_redesign_hover.png'), v: '3'},
+            {file: _getResourceURL('/images/title_plate_redesign_normal.png'), v: '3'}
         ],
-        getPath: function(path) {
+        getPath: function (path) {
             if (path.startsWith('https') || path.startsWith('http')) {
             } else {
                 path = _getResourceURL(path);
@@ -347,23 +400,23 @@ var app = (function() {
             }
             return _getResourceURL(path) + '?v=' + this.v;
         },
-        getCFG: function(alias) {
+        getCFG: function (alias) {
             return this.list.find(_cfg => _cfg.file === alias);
         }
     };
 
     return {
-        init: function(progress) {
+        init: function (progress) {
             let self = this;
             let total = 2;
             progress.set(0, total, 'Загрузка ресурсов');
-            let onLoad = function() {
+            let onLoad = function () {
                 progress.progress++;
                 if (progress.isComplete()) {
                     self.updateLayout();
 
                     progress.set(0, self.LAYOUT.VK ? 3 : 2, 'Загрузка ресурсов');
-                    onLoad = function() {
+                    onLoad = function () {
                         progress.progress++;
                         if (progress.isComplete()) {
                             if (self.LAYOUT.MAILRU) {
@@ -384,14 +437,14 @@ var app = (function() {
             this.loadJS('Utils', onLoad);
         },
 
-        updateLayout: function() {
+        updateLayout: function () {
             let w0 = window.innerWidth
-                        || document.documentElement.clientWidth
-                        || document.body.clientWidth;
+                || document.documentElement.clientWidth
+                || document.body.clientWidth;
 
             let h0 = window.innerHeight
-                        || document.documentElement.clientHeight
-                        || document.body.clientHeight;
+                || document.documentElement.clientHeight
+                || document.body.clientHeight;
 
             let LAYOUT = {};
 
@@ -445,7 +498,7 @@ var app = (function() {
                     LAYOUT.h = Math.min(h0, 1200);
                     LAYOUT.maxH = 1200;
                     LAYOUT.scale = 1;
-                    LAYOUT.screen = {w: w0, h : h0};
+                    LAYOUT.screen = {w: w0, h: h0};
                 } else if (w0 >= 480) {
                     LAYOUT.w = 480;
                     LAYOUT.h = Math.min(h0, 1200);
@@ -459,7 +512,7 @@ var app = (function() {
                     LAYOUT.scale = w0 / 480;
                     LAYOUT.scaledH = LAYOUT.h * LAYOUT.scale;
                     LAYOUT.scaledH = Math.min(LAYOUT.scaledH, LAYOUT.h);
-                    LAYOUT.screen = {w: w0, h : h0};
+                    LAYOUT.screen = {w: w0, h: h0};
                 }
                 if (location.hostname === 'vk.keepers.mobi') {
                     LAYOUT.VK_MOBILE = 1;
@@ -511,21 +564,21 @@ var app = (function() {
                 }
             }
 
-            LAYOUT.convert = function(value) {
+            LAYOUT.convert = function (value) {
                 if (this.scale < 1) {
                     value *= this.scale;
                 }
                 return value;
             };
 
-            LAYOUT.convert0 = function(value) {
+            LAYOUT.convert0 = function (value) {
                 if (this.scale < 1) {
                     value *= 1 / this.scale;
                 }
                 return value;
             };
 
-            LAYOUT.getClientWHS0 = function(h, flags) {
+            LAYOUT.getClientWHS0 = function (h, flags) {
                 h = app.Utils.withOffsets(h, flags);
                 if (this.scale < 1) {
                     return this.convert0(this.h) - h;
@@ -538,24 +591,24 @@ var app = (function() {
         },
 
         CSS: css,
-        loadCSS: function(alias, onLoad) {
-            const head  = document.getElementsByTagName('head')[0];
-            const link  = document.createElement('link');
-            link.onload = function() {
+        loadCSS: function (alias, onLoad) {
+            const head = document.getElementsByTagName('head')[0];
+            const link = document.createElement('link');
+            link.onload = function () {
                 onLoad();
             };
-            link.rel  = 'stylesheet';
+            link.rel = 'stylesheet';
             link.type = 'text/css';
             link.href = css.getPath(alias);
             head.appendChild(link);
         },
 
         JS: js,
-        loadJS: function(alias, onLoad) {
+        loadJS: function (alias, onLoad) {
             let path = js.getPath(alias);
             this.loadJS0(path, onLoad);
         },
-        loadJS1: function(alias, onLoad) {
+        loadJS1: function (alias, onLoad) {
             if (app[alias]) {
                 onLoad();
             } else {
@@ -563,24 +616,24 @@ var app = (function() {
                 this.loadJS0(path, onLoad);
             }
         },
-        loadJS0: function(path, onLoad) {
+        loadJS0: function (path, onLoad) {
             let el = document.createElement('script');
             el.type = 'text/javascript';
-            el.onload = function() {
+            el.onload = function () {
                 onLoad();
             };
             el.src = path;
             document.getElementsByTagName('head')[0].appendChild(el);
         },
-        loadGSAP: function(onLoad) {
+        loadGSAP: function (onLoad) {
             this.loadJS0(_getResourceURL('/js/libs/gsap/TweenMax.min.js'), onLoad);
         },
-        loadJSAll: function(onLoad, onComplete) {
+        loadJSAll: function (onLoad, onComplete) {
             let self = this;
             let list = js.list;
             let progress = 0;
             let total = list.length;
-            let load = function(cfg) {
+            let load = function (cfg) {
                 if (app[cfg.alias]) {
                     progress++;
                     if (progress === total) {
@@ -602,7 +655,7 @@ var app = (function() {
         },
 
         IMAGES: images,
-        loadIMGs: function(sources, onLoad, onComplete) {
+        loadIMGs: function (sources, onLoad, onComplete) {
             let progress = 0;
             let total = sources.length;
             sources.forEach(function (source) {
@@ -618,7 +671,7 @@ var app = (function() {
                     };
                     img.src = images.getPath(source);
                 });
-                p.then(function(data) {
+                p.then(function (data) {
                     onLoad(data);
                     if (data.last) {
                         onComplete();
@@ -630,25 +683,25 @@ var app = (function() {
         RESIZE: {
             tID: 0,
             value: 1,
-            isOn: function() {
+            isOn: function () {
                 return this.value;
             },
-            off: function() {
+            off: function () {
                 if (this.tID) {
                     clearTimeout(this.tID);
                 }
                 this.value = 0;
             },
-            on: function() {
+            on: function () {
                 let self = this;
-                self.tID = setTimeout(function() {
+                self.tID = setTimeout(function () {
                     self.value = 1;
                     app.onResize();
                 }, 500);
             }
         },
 
-        onResize: function() {
+        onResize: function () {
             console.log('onResize');
 
             if (!app.UserUtil
@@ -688,8 +741,7 @@ var app = (function() {
                 }
 
                 let cfg = app.MainPage.getCFG();
-                cfg.content.els.main.style.height = app.LAYOUT.convert0(app.LAYOUT.h) - 76 + 6 + 'px';
-                cfg.icons.bottom.els.main.style.top = cfg.icons.bottom1.els.main.style.top = app.LAYOUT.getClientWHS0(0) - (76 + 55 + 10) + 'px';
+                app.MainPage.layoutAboveFooter();
                 cfg.content.scroll.top = Math.max(-210, (app.LAYOUT.convert0(app.LAYOUT.h) - app.LAYOUT.maxH) / 2);
                 cfg.content.scroll.topMax = app.LAYOUT.maxH - app.LAYOUT.convert0(app.LAYOUT.h);
                 cfg.content.scroll.el.style.top = cfg.content.scroll.top + "px";
@@ -697,7 +749,7 @@ var app = (function() {
                 if (app.GuildPage) {
                     let content = app.GuildPage.getCFG();
                     if (content) {
-                        content.els.main.style.height = app.LAYOUT.convert0(app.LAYOUT.h) - 76 + 6 + 'px';
+                        content.els.main.style.height = app.LAYOUT.convert0(app.LAYOUT.h) - app.Menu.getFooterHeight() + 'px';
                         content.scroll.top = Math.max(-210, (app.LAYOUT.convert0(app.LAYOUT.h) - app.LAYOUT.maxH) / 2);
                         content.scroll.topMax = app.LAYOUT.maxH - app.LAYOUT.convert0(app.LAYOUT.h);
                         content.scroll.el.style.top = content.scroll.top + "px";
@@ -706,12 +758,12 @@ var app = (function() {
 
                 if (app.Menu) app.Menu.updateWHS();
                 app.Popups.updateWHS();
-            } catch(e) {
+            } catch (e) {
                 console.error(e);
             }
         },
 
-        getResourceURL: function(path) {
+        getResourceURL: function (path) {
             return _getResourceURL(path);
         },
 

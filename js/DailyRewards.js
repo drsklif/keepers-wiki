@@ -40,7 +40,7 @@ app.DailyRewards = (function() {
         p.tmp.dr.current = app.UserUtil.getCurrentDailyRewardIDX();
         p.tmp.list = [];
 
-        let availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+        let availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
         let availableHeight = Math.min(availableHeight0, 628);
         let top = (availableHeight0 - availableHeight) / 2;
         top = Math.max(80, top);

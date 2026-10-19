@@ -39,7 +39,7 @@ if (!app.Shop) {
                 type: type
             };
 
-            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
             const contentRequiredHeight = 628;
 
             let availableHeight = Math.min(contentRequiredHeight, availableHeight0);

@@ -202,8 +202,12 @@
       }
     }
 
+    function isBackgroundPaused() {
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
+    }
+
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      return token === state.cycleToken && state.autoEnabled && !isBackgroundPaused();
     }
 
     async function refreshQuestList(token) {
@@ -219,6 +223,7 @@
     }
 
     async function claimQuest(quest, token) {
+      if (!tokenAlive(token)) return;
       if (Date.now() < (state.claimCooldownUntil[quest.id] || 0)) return;
       const energyBefore = Number(app.Model.user?.energy?.v);
       const claimedId = quest.id;
@@ -270,6 +275,7 @@
     }
 
     async function runCycle(token, source) {
+      if (!tokenAlive(token)) return;
       const beforeCount = getClaimableQuests().length;
       await refreshQuestList(token);
       if (!tokenAlive(token)) return;
@@ -311,6 +317,7 @@
           lines.push(`  ${line}`);
         }
       }
+      if (isBackgroundPaused()) lines.unshift("Пауза: идёт бой");
       if (state.busy) lines.push("Сейчас: проверка");
       return lines.join("\n");
     }
@@ -404,6 +411,7 @@
     function scheduleCycle(source) {
       if (state.busy) return;
       if (!state.autoEnabled) return;
+      if (isBackgroundPaused()) return;
 
       state.busy = true;
       const token = (state.cycleToken += 1);
@@ -430,19 +438,19 @@
     function scan(source) {
       if (!isUserReady()) return;
       const claimable = getClaimableQuests();
-      const statusKey = `${state.busy ? "busy" : "idle"}|${claimable.map((q) => q.id).join(",")}|${state.lastClaimed[0] || ""}`;
+      const paused = isBackgroundPaused();
+      const statusKey = `${paused ? "battle" : state.busy ? "busy" : "idle"}|${claimable.map((q) => q.id).join(",")}|${state.lastClaimed[0] || ""}`;
       if (statusKey !== state.lastStatusKey) {
         state.lastStatusKey = statusKey;
         updateOverlay();
       }
       if (!state.autoEnabled) return;
-      if (source === "poll" || source === "boot") {
-        scheduleCycle(source);
+      if (paused) {
+        logWaitOnce("battle", "Идёт бой, задания подождём.");
         return;
       }
-      if (claimable.length > 0 && !state.busy) {
-        scheduleCycle(source);
-      }
+      if (source !== "poll" && source !== "boot") return;
+      scheduleCycle(source);
     }
 
     function hookEvents() {

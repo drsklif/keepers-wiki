@@ -90,11 +90,17 @@ if (!app.GuildBlitzPage) {
 
             p.tmp = {};
             p.tmp.updateBlitzData = () => {
-                p.tmp.blitz = app.Model.user.guildBlitz;
+                let blitz = app.Model.user.guildBlitz;
+                // {remove: 1} — серверный delta-сигнал «очисти guildBlitz»; если он протёк
+                // в актуальный стейт, трактуем как «гильдия не участвует» (id === -1)
+                if (!blitz || blitz.remove) {
+                    blitz = {id: -1};
+                }
+                p.tmp.blitz = blitz;
 
                 p.tmp.guildEntry = p.tmp.blitz.id === -1
                     ? {}
-                    : app.Model.user.guildBlitz.group.guilds.find(guildEntry => guildEntry.id === app.Model.user.guild.id);
+                    : p.tmp.blitz.group.guilds.find(guildEntry => guildEntry.id === app.Model.user.guild.id);
 
                 p.tmp.userEntry = p.tmp.blitz.id === -1
                     ? {}
@@ -170,7 +176,7 @@ if (!app.GuildBlitzPage) {
 
             p.els.brd_r.appendChild(app.Utils.createHelpPopup('Guild_Blitz'));
 
-            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+            const availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
             const availableHeight = Math.min(availableHeight0, 628);
             let top = (availableHeight0 - availableHeight) / 2;
             top = Math.max(80, top);
@@ -333,7 +339,10 @@ if (!app.GuildBlitzPage) {
                 }, () => {
 
                     if (!complete) {
-                        app.Utils.showInfo('Нужно выполнять задания челленджа');
+                        const baseChest = app.GuildBlitzUtil.getBaseChest(chest.id);
+                        if (baseChest) {
+                            app.Utils.createChestRewardPopup('Сундук заданий', baseChest);
+                        }
                         return;
                     }
 
@@ -404,19 +413,8 @@ if (!app.GuildBlitzPage) {
                     });
                 } else {
                     el_a_goto_or_get = app.Utils.createA({class: 'btn_g btn_gsm', style: 'top: 15px; left: 310px', text: 'Перейти'}, () => {
-                        /*
-                        if (!task.s) {
-                            app.Utils.showInfo('Задание ещё не выполняется');
-                            return;
-                        }
-                         */
                         app.GuildBlitzUtil.goto(p.tmp.userEntry);
                     });
-                    /*
-                    if (!task.s) {
-                        app.Utils.addClass(el_a_goto_or_get, 'bw');
-                    }
-                     */
                 }
 
                 p.scroll.el.appendChild(el = app.Utils.createDIV({
@@ -426,7 +424,7 @@ if (!app.GuildBlitzPage) {
                     el_a_goto_or_get,
                     app.Utils.createA({class: 'mail_top_r mail_top_rw', style: 'margin-left: 5px; margin-right: 150px;'}, null, [
                         app.Utils.createDIV({class: 'mt5 info dbl', text: app.GuildBlitzUtil.getTaskDescription(p.tmp.userEntry)}),
-                        app.Utils.createDIV({class: 'log_dmg', style: 'margin-top: 5px; margin-bottom: 5px'}, null, [
+                        app.Utils.createDIV({class: 'log_dmg quest-progress', style: 'margin-top: 5px; margin-bottom: 5px'}, null, [
                             app.Utils.createDIV({class: 'log_dmg_prg', style: 'width: {0}%'.format(app.Utils.toPRG(progress, required))}),
                             app.Utils.createDIV({class: 'log_dmg_patch'}),
                             app.Utils.createDIV({class: 'log_dmg_text', text: '{0}/{1}'.format(progress, required)}),
@@ -440,71 +438,6 @@ if (!app.GuildBlitzPage) {
                         ])
                     ])
                 ]));
-
-                /*
-                let el_a_start, el_after_a_start_hr, el_after_a_start_or;
-                if (!task.s) {
-                    el.appendChild(el_a_start = app.Utils.createA({
-                        class: 'btn_g  mlra_ab mt10',
-                        html: 'Выполнять за <span class="res_icon res_icon_inline res_energy_p"></span>1'
-                    }, () => {
-                        if (app.Utils.hasClass(el_a_start, 'bw')) {
-                            return;
-                        }
-
-                        const userEntry = app.GuildBlitzUtil.getUserEntry();
-                        if (userEntry.e.v < 1) {
-                            app.Utils.showInfo('Недостаточно энергии');
-                            return;
-                        }
-
-                        app.Utils.addClass(el_a_start, 'bw');
-
-                        app.Network.command({cmd: 'GuildBlitzStartTask'}, data => {
-                            let remove = false;
-                            if (data.error) {
-                                switch (data.error.code) {
-                                    case 3: {
-                                        app.Utils.showInfo('Турнир еще не начался');
-                                        app.Utils.removeClass(el_a_start, 'bw');
-                                        break;
-                                    }
-
-                                    // already started
-                                    case 4: {
-                                        remove = true;
-                                        break;
-                                    }
-                                    case 5: {
-                                        app.Utils.showInfo('Недостаточно энергии');
-                                        app.Utils.removeClass(el_a_start, 'bw');
-                                        break;
-                                    }
-                                    default: {
-                                        app.Utils.removeClass(el_a_start, 'bw');
-                                        break;
-                                    }
-                                }
-                            } else {
-                                remove = true;
-                            }
-
-                            if (remove) {
-                                app.Utils.removeClass(el_a_goto_or_get, 'bw');
-
-                                el_a_start.parentNode.removeChild(el_a_start);
-                                el_a_start = undefined;
-                                el_after_a_start_hr.parentNode.removeChild(el_after_a_start_hr);
-                                el_after_a_start_hr = undefined;
-                                el_after_a_start_or.parentNode.removeChild(el_after_a_start_or);
-                                el_after_a_start_or = undefined;
-                            }
-                        });
-                    }));
-                    el.appendChild(el_after_a_start_hr = app.Utils.createDIV({class: 'hr mt20 mb10', style: 'margin-top: 60px'}));
-                    el.appendChild(el_after_a_start_or = app.Utils.createDIV({class: 'cntr mt20', text: 'Или'}));
-                }
-                 */
 
                 const taskSkipPrice = app.GuildBlitzUtil.getBaseTaskSkipPrice(task.id)
                 const isFreeSkip = (p.tmp.userEntry.dtsc || 0) === 0;
@@ -624,7 +557,7 @@ if (!app.GuildBlitzPage) {
                                             ? 'Получить или потратить вместе ' + app.Utils.toMoney1(stageRequired) + ' каменной пыли'
                                             : 'Получить или потратить вместе ' + app.Utils.toMoney1(stageRequired) + ' кристаллов'
                             }),
-                            app.Utils.createDIV({class: 'log_dmg', style: 'margin-top: 5px; margin-bottom: 5px;'}, null, [
+                            app.Utils.createDIV({class: 'log_dmg quest-progress', style: 'margin-top: 5px; margin-bottom: 5px;'}, null, [
                                 app.Utils.createDIV({
                                     class: 'log_dmg_prg',
                                     style: 'width: {0}%'.format(stageRequired > 0 ? app.Utils.toPRG(currentProgress, stageRequired) : 100)
@@ -953,10 +886,12 @@ if (!app.GuildBlitzPage) {
                 : blitz.group.guilds.length;
 
             cfg.el = app.Utils.createDIV({class: 'arena_info'}, null, [
-                p.tmp.blitz.id === -1
-                    ? app.Utils.createDIV({class: 'mt5 str', text: 'Гильдия не участвует в челлендже'})
-                    : blitz.s === 'WAITING'
-                        ? app.Utils.createDIV({})
+                blitz.s === 'WAITING'
+                    // в WAITING состав ещё не сформирован — сервер шлёт id:-1 всем гильдийным игрокам,
+                    // даже квалифицированным; реальный статус «не участвует» определяется только после старта
+                    ? app.Utils.createDIV({class: 'mt5 str', text: 'Гильдия участвует при выполнении условий события'})
+                    : p.tmp.blitz.id === -1
+                        ? app.Utils.createDIV({class: 'mt5 str', text: 'Гильдия не участвует в челлендже'})
                         : app.Utils.createDIV({
                             class: 'mt5 str',
                             html: 'Наше место: <span class="info">{0}</span> из <span class="info">{1}</span>'.format(place === 0 ? '?' : place, totalGuilds)
@@ -1111,7 +1046,23 @@ if (!app.GuildBlitzPage) {
             p.tmp.updateEnergyData();
             p.els.popup.appendChild(el);
 
-            if (p.tmp.energy.nrt) {
+            // Overflow-кейс: премиум закончился, но в энергии остался бонус, превышающий обычный максимум.
+            // Регенерация в этом состоянии не идёт (см. restoreEnergy: условие energy < max), поэтому
+            // таймер «+1 через X» не показываем — он бы вводил в заблуждение, — а вместо него
+            // объясняем игроку природу «лишних» очков.
+            if (p.tmp.energy.v > p.tmp.energy.max) {
+                const overflowAmount = p.tmp.energy.v - p.tmp.energy.max;
+                p.els.popup.appendChild(app.Utils.createDIV({
+                    class: 'battle_advice',
+                    style: 'width: 330px; top: 45px',
+                    html: 'Премиум закончился: +' + overflowAmount + '<span class="res_icon res_icon_inline res_energy_p"></span> сверх максимума'
+                }));
+            }
+
+            // Таймер показываем только когда регенерация реально пойдёт: nrt > 0 И есть свободный
+            // слот под энергию (v < max). Иначе игрока обманывает «+1 через X», а пополнения нет —
+            // например при v == max (lrt не сбросился вовремя) или v > max (overflow).
+            if (p.tmp.energy.nrt && p.tmp.energy.v < p.tmp.energy.max) {
                 p.els.popup.appendChild(p.els.restore = app.Utils.createDIV({class: 'battle_advice', style: 'width: 330px; top: 45px'}));
 
                 let start = app.TimeUtil.now();
@@ -1159,20 +1110,49 @@ if (!app.GuildBlitzPage) {
                 update();
             }
 
-            // Add premium info block first
+            // Premium-блок: либо upsell (если не премиум), либо подтверждение что бонус применён.
+            const premiumBonus = cfgGuildBlitz.energy.max.premium - cfgGuildBlitz.energy.max.def;
             let premiumBlockHeight = 0;
             if (p.tmp.energy.max !== cfgGuildBlitz.energy.max.premium) {
                 p.els.popup.appendChild(app.Utils.createDIV({
                     class: 'battle_advice info',
                     style: 'width: 330px; top: 75px',
-                    html: '+2<span class="res_icon res_icon_inline res_energy_p"></span> к максимуму при активном премиуме'
+                    html: '+' + premiumBonus + '<span class="res_icon res_icon_inline res_energy_p"></span> к максимуму при активном премиуме'
                 }));
-                premiumBlockHeight = 30; // Height of premium info block
+                premiumBlockHeight = 30;
+            } else if (app.UserUtil.isPremiumActive()) {
+                p.els.popup.appendChild(app.Utils.createDIV({
+                    class: 'battle_advice info',
+                    style: 'width: 330px; top: 75px',
+                    html: 'Премиум активен: +' + premiumBonus + '<span class="res_icon res_icon_inline res_energy_p"></span> к максимуму'
+                }));
+                premiumBlockHeight = 30;
+            }
+
+            // Счётчик дневных покупок энергии — показываем только если хотя бы одна покупка была сегодня
+            // (иначе шум для тех, кто никогда не покупал).
+            const MAX_DAILY_ENERGY_BUY = 3;
+            let dailyBuyBlockHeight = 0;
+            if (p.tmp.energy.dbc && p.tmp.energy.dbc > 0) {
+                const dailyTopPosition = 75 + premiumBlockHeight;
+                p.els.popup.appendChild(app.Utils.createDIV({
+                    class: 'battle_advice',
+                    style: 'width: 330px; top: ' + dailyTopPosition + 'px',
+                    text: 'Сегодня куплено ' + p.tmp.energy.dbc + ' из ' + MAX_DAILY_ENERGY_BUY
+                }));
+                dailyBuyBlockHeight = 25;
+            }
+
+            // Подгоняем базовую высоту попапа под добавленные блоки
+            // (если ниже не появится кнопка покупки, которая считает height сама).
+            const baseContentHeight = 75 + premiumBlockHeight + dailyBuyBlockHeight;
+            if (baseContentHeight + 25 > 100) {
+                p.els.popup.style.height = (baseContentHeight + 25) + 'px';
             }
 
             // Add energy purchase button when energy is 0
             if (p.tmp.energy.v === 0) {
-                const topPosition = 75 + premiumBlockHeight + 10; // After premium block + margin
+                const topPosition = 75 + premiumBlockHeight + dailyBuyBlockHeight + 10;
                 const buttonTopPosition = topPosition + 30; // Button below the text
 
                 p.els.popup.appendChild(app.Utils.createDIV({class: 'hr', style: `width: 330px; position: absolute; top: ${topPosition - 5}px; left: 0px`}));
@@ -1277,7 +1257,7 @@ if (!app.GuildBlitzPage) {
             app.Popups.add(p);
 
             TweenMax.delayedCall(0.001, function() {
-                const availableHeight0 = app.LAYOUT.getClientWHS0(80 + 76);
+                const availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
                 const contentRequiredHeight = 450;
                 const availableHeight = Math.min(contentRequiredHeight, availableHeight0);
 

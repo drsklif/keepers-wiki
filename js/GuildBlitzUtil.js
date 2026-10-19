@@ -269,6 +269,10 @@ if (!app.GuildBlitzUtil) {
         getCollectiveTaskIcon(taskType) {
             const config = this.getCollectiveTaskConfig(taskType);
             return config ? config.icon : 'res_icon';
+        },
+
+        getBaseChest(chestId) {
+            return cfg.chests.find(chest => chest.id === chestId);
         }
     };
 }

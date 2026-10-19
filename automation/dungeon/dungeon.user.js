@@ -455,8 +455,12 @@
       log(`Клетка ${num}: ${text}.`);
     }
 
+    function isBackgroundPaused() {
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
+    }
+
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      return token === state.cycleToken && state.autoEnabled && !isBackgroundPaused();
     }
 
     async function claimChest(spec, token) {
@@ -511,6 +515,7 @@
     }
 
     async function runCycle(token, source) {
+      if (!tokenAlive(token)) return;
       const chests = getReadyChests();
       for (const spec of chests) {
         if (!tokenAlive(token)) return;
@@ -543,6 +548,7 @@
 
     function getIdleBlockReason() {
       if (!state.autoEnabled) return "выкл";
+      if (isBackgroundPaused()) return "battle";
       if (getReadyChests().length > 0) return null;
       const cave = getCave();
       if (!cave && !app.Model.user?.dungeon) return "no-dungeon";
@@ -603,6 +609,7 @@
           lines.push(`  Сегодня всего: ${todaySummary}`);
         }
       }
+      if (isBackgroundPaused()) lines.unshift("Пауза: идёт бой");
       if (state.busy) lines.push("Сейчас: команда");
       return lines.length > 0 ? lines.join("\n") : "Подземелье: нет данных";
     }
@@ -734,6 +741,10 @@
       }
 
       if (!state.autoEnabled) return;
+      if (reason === "battle") {
+        logWaitOnce("battle", "Идёт бой, подземелье подождём.");
+        return;
+      }
       if (reason === "no-dungeon") {
         logWaitOnce("no-dungeon", "Подземелье в модели ещё нет.");
         return;
@@ -757,6 +768,7 @@
         logWaitOnce("idle", "Сундуков нет, каменоломня ждёт.");
         return;
       }
+      if (source !== "poll" && source !== "boot") return;
       if (reason) return;
       scheduleCycle(source);
     }

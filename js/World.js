@@ -63,8 +63,14 @@ app.World = (function() {
             div.appendChild(app.Utils.createDIV({class: 'dark', style: 'top: 0px; opacity: 0.9'}));
             div.appendChild(app.Utils.createDIV({class: 'connecntion', style: 'margin-left: auto; margin-right: auto; left: 0px; right: 0px; top: 100px'}));
             div.appendChild(app.Utils.createDIV({class: 'str big cntr', style: 'position: absolute; margin-left: auto; margin-right: auto; left: 0px; right: 0px; top: 160px', html: text}));
-            div.appendChild(app.Utils.createA({class: 'btn_g', style: 'margin-left: auto; margin-right: auto; left: 0px; right: 0px; top: 195px', text: 'Обновить'}, function () {
-                location.reload(false);
+            // button: {text, href} — куда вести вместо перезагрузки (протухший токен билайна перезагрузка не лечит)
+            let button = data && data.button;
+            div.appendChild(app.Utils.createA({class: 'btn_g', style: 'margin-left: auto; margin-right: auto; left: 0px; right: 0px; top: 195px', text: button ? button.text : 'Обновить'}, function () {
+                if (button) {
+                    location.href = button.href;
+                } else {
+                    location.reload(false);
+                }
             }));
             div0.appendChild(div);
             document.body.appendChild(div0);

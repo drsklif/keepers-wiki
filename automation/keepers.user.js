@@ -57,6 +57,21 @@
           app.Popups
       );
     },
+    isBattleOpen() {
+      try {
+        if (!window.app || !app.Popups) return false;
+        if (typeof app.Popups.getByID === "function") {
+          return Boolean(app.Popups.getByID("BATTLE"));
+        }
+        const last = typeof app.Popups.getLast === "function" ? app.Popups.getLast() : null;
+        return Boolean(last && last.cfg && last.cfg.id === "BATTLE");
+      } catch (_err) {
+        return false;
+      }
+    },
+    shouldPauseBackgroundAutomation() {
+      return this.isBattleOpen();
+    },
     boot() {
       const timer = setInterval(() => {
         if (!this.isAppReady()) return;

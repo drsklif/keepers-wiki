@@ -153,6 +153,34 @@ let Notifications = {
         });
     },
 
+    rebuildData() {
+        const data = this.cfg.els.data;
+        app.Utils.removeAllChild(data);
+
+        const blocks = [];
+        if (this.cfg.pvpt)      blocks.push(this.cfg.pvpt.els.main);
+        if (this.cfg.labyrinth) blocks.push(this.cfg.labyrinth.els.main);
+        if (this.cfg.champt)    blocks.push(this.cfg.champt.els.main);
+
+        for (let i = 0; i < blocks.length; i++) {
+            if (i > 0) {
+                data.appendChild(app.Utils.createDIV({class: 'hr mtb5', style: 'background-size: 100px 1px'}));
+            }
+            data.appendChild(blocks[i]);
+        }
+    },
+
+    reflow() {
+        if (this.cfg.pvpt || this.cfg.labyrinth || this.cfg.champt) {
+            if (this.state.v === STATE.OPENED || this.state.v === STATE.ANIMATION) {
+                this.rebuildData();
+            }
+            this.tmp.needToUpdateSizes = 1;
+        } else {
+            this.remove();
+        }
+    },
+
     canShowPVPT() {
         const pvpt = app.Model.user.pvpt;
         if (pvpt) return pvpt.state.v === 1 || pvpt.e;
@@ -165,17 +193,8 @@ let Notifications = {
         let cfg = {
             els: {},
             remove() {
-                if (app.Notifications.cfg.pvpt) {
-                    if (app.Notifications.cfg.pvpt.els.main.parentNode) {
-                        app.Notifications.cfg.pvpt.els.main.parentNode.removeChild(app.Notifications.cfg.pvpt.els.main);
-                    }
-                    delete app.Notifications.cfg.pvpt;
-                }
-                if (app.Notifications.cfg.labyrinth) {
-                    app.Notifications.tmp.needToUpdateSizes = 1;
-                } else {
-                    app.Notifications.remove();
-                }
+                delete app.Notifications.cfg.pvpt;
+                app.Notifications.reflow();
             },
             update() {
                 let pvpt = app.Model.user.pvpt;
@@ -291,17 +310,8 @@ let Notifications = {
         let cfg = {
             els: {},
             remove() {
-                if (app.Notifications.cfg.labyrinth) {
-                    if (app.Notifications.cfg.labyrinth.els.main.parentNode) {
-                        app.Notifications.cfg.labyrinth.els.main.parentNode.removeChild(app.Notifications.cfg.labyrinth.els.main);
-                    }
-                    delete app.Notifications.cfg.labyrinth;
-                }
-                if (app.Notifications.cfg.pvpt) {
-                    app.Notifications.tmp.needToUpdateSizes = 1;
-                } else {
-                    app.Notifications.remove();
-                }
+                delete app.Notifications.cfg.labyrinth;
+                app.Notifications.reflow();
             },
             update() {
                 let lab = app.Model.user.labyrinth;
@@ -397,17 +407,8 @@ let Notifications = {
         let cfg = {
             els: {},
             remove() {
-                if (app.Notifications.cfg.champt) {
-                    if (app.Notifications.cfg.champt.els.main.parentNode) {
-                        app.Notifications.cfg.champt.els.main.parentNode.removeChild(app.Notifications.cfg.champt.els.main);
-                    }
-                    delete app.Notifications.cfg.champt;
-                }
-                if (app.Notifications.cfg.pvpt || app.Notifications.cfg.labyrinth) {
-                    app.Notifications.tmp.needToUpdateSizes = 1;
-                } else {
-                    app.Notifications.remove();
-                }
+                delete app.Notifications.cfg.champt;
+                app.Notifications.reflow();
             },
             update() {
                 let champt = app.Model.user.champt;
@@ -532,25 +533,7 @@ let Notifications = {
                 this.cfg.champt = this.createChampT();
             }
 
-            if (this.cfg.pvpt) {
-                this.cfg.els.data.appendChild(this.cfg.pvpt.els.main);
-                if (this.cfg.labyrinth) {
-                    this.cfg.els.data.appendChild(app.Utils.createDIV({class: 'hr mtb5', style: 'background-size: 100px 1px'}));
-                    this.cfg.els.data.appendChild(this.cfg.labyrinth.els.main);
-                }
-                if (this.cfg.champt) {
-                    this.cfg.els.data.appendChild(app.Utils.createDIV({class: 'hr mtb5', style: 'background-size: 100px 1px'}));
-                    this.cfg.els.data.appendChild(this.cfg.champt.els.main);
-                }
-            } else if (this.cfg.labyrinth) {
-                this.cfg.els.data.appendChild(this.cfg.labyrinth.els.main);
-                if (this.cfg.champt) {
-                    this.cfg.els.data.appendChild(app.Utils.createDIV({class: 'hr mtb5', style: 'background-size: 100px 1px'}));
-                    this.cfg.els.data.appendChild(this.cfg.champt.els.main);
-                }
-            } else if (this.cfg.champt) {
-                this.cfg.els.data.appendChild(this.cfg.champt.els.main);
-            }
+            this.rebuildData();
 
             app.Notifications.updateSizes(({w, h, onComplete}) => {
                 TweenMax.killTweensOf(this.cfg.els.data);
@@ -670,7 +653,7 @@ let Notifications = {
             if (app.GuildPage.getCFG()) {
                 let el = app.GuildPage.getCFG().els.emblem.name;
                 let rect = el.getBoundingClientRect();
-                top = rect.top + app.LAYOUT.convert0(rect.height);
+                top = app.LAYOUT.convert0(rect.top + rect.height);
                 if (top > 0) {
                     top += 5;
                 }

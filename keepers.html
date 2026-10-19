@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <meta name="viewport"
-            content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+          content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"/>
     <link href="https://fonts.googleapis.com/css?family=Kurale" rel="stylesheet">
-    <link rel="shortcut icon" type="image/png" href="https://keepers.mobi/images/favicon.png" />
+    <link rel="shortcut icon" type="image/png" href="https://keepers.mobi/images/favicon.png"/>
     <meta property="og:title" content="Хранители Карт и Магии">
     <meta property="og:image" content="https://keepers.mobi/images/og_image_v3.png">
     <meta property="og:image:width" content="1200">
@@ -16,12 +16,12 @@
 <body style="background: #000; margin: 0 auto; font-size: 14px; color: #fff; font-family: Arial,sans-serif; max-width: 480px; -moz-user-select: none; -webkit-user-select: none;  user-select: none; overflow-y: hidden;">
 <div id="loading0" style="width: 300px;height:200px;position:absolute;top:0;bottom:0;left:0;right:0;margin:auto;">
     <div id="loading_spinner"
-            style="position:relative;transform-origin:center center;width:60px;height:60px;background: url(https://keepers.mobi/images/loading.png) 0px -53px no-repeat;margin: auto;margin-top:20px;transform: rotate(301deg);"></div>
+         style="position:relative;transform-origin:center center;width:60px;height:60px;background: url(https://keepers.mobi/images/loading.png) 0px -53px no-repeat;margin: auto;margin-top:20px;transform: rotate(301deg);"></div>
     <div class="loading"
-            style="background: url(https://keepers.mobi/images/loading.png) center top no-repeat; width:300px;height: 38px; margin: auto; position: relative; margin-top: 20px;">
+         style="background: url(https://keepers.mobi/images/loading.png) center top no-repeat; width:300px;height: 38px; margin: auto; position: relative; margin-top: 20px;">
         <div class="loading_prg_w" style="position: absolute; width: 248px; height: 15px; left: 26px; top: 11px;">
             <div id="loading_prg"
-                    style="position: absolute;  width: 248px;  height: 15px; background: url(https://keepers.mobi/images/loading.png) left -38px; width: 0%;">
+                 style="position: absolute;  width: 248px;  height: 15px; background: url(https://keepers.mobi/images/loading.png) left -38px; width: 0%;">
             </div>
         </div>
     </div>
@@ -33,7 +33,7 @@
 <script>
     var VK_ODR = 0;
     var VK_ODR_SERVER_URL = 'https://keepers.mobi';
-    var VK_ODR_SERVER_WS_URL = 'https://keepers.mobi:444';
+    var VK_ODR_SERVER_WS_URL = 'https://keepers.mobi';
     var VK_ODR_CORS_SERVER = 'vkcors://keepers.mobi';
 
     function getVK_ODR_Path(path) {
@@ -102,9 +102,9 @@
 
 <script>
 
-            if (location.protocol === 'http:') {
-                location = 'https' + location.href.substr(4);
-            }
+    if (location.protocol === 'http:') {
+        location = 'https' + location.href.substr(4);
+    }
 
     var _getRequestParameters = function () {
         const r = {};
@@ -193,13 +193,29 @@
     console.error = function () {
         if (app && app.Network) {
             try {
-                let info = new Error().stack;
-                if (app && app.Network) {
-                    app.Network.command({
-                        cmd: 'Error',
-                        error: info
-                    });
-                }
+                // без аргументов в отчёт уходил только стек самого перехватчика,
+                // одинаковый для любой ошибки, и понять по нему было нечего
+                let msg = Array.prototype.slice.call(arguments).map(function (a) {
+                    if (a instanceof Error) return a.message;
+                    if (a && typeof a === 'object') {
+                        try { return JSON.stringify(a); } catch (e) { return String(a); }
+                    }
+                    return String(a);
+                }).join(' ');
+
+                // Строку запроса страницы вырезаем: в стек попадает её адрес,
+                // а в нём access_token площадки — ему не место в наших логах.
+                // Шаблон бьёт по "/?", поэтому "?v=" у файлов остаётся: по нему
+                // мы отличаем версии клиента
+                let stack = String(new Error().stack).replace(/\/\?[^\s)]*/g, '/?…');
+
+                // Обрезка обязательна: до неё отчёт весил больше двух килобайт,
+                // при обрыве такие копились в очереди отправки и вытесняли
+                // команды игрока, а на polling уезжали одной пачкой
+                app.Network.command({
+                    cmd: 'Error',
+                    error: (msg + '\n' + stack).slice(0, 1000)
+                });
             } catch (e) {
             }
         }
@@ -208,6 +224,76 @@
 </script>
 
 <script>
+    //
+    // билайн, веб-канал: jwt из ?token= живет 30 секунд, поэтому после авторизации
+    // работаем по своей сессии, а токен убираем из адреса, чтобы перезагрузка страницы не слала протухший
+    //
+    const BEELINE_SESSION_KEY = 'beeline_session';
+
+    function _isBeelineHost() {
+        return location.hostname === 'test.beeline.keepers.mobi' || location.hostname === 'beeline.keepers.mobi';
+    }
+
+    function _getBeelineSession() {
+        try {
+            return sessionStorage.getItem(BEELINE_SESSION_KEY);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function _clearBeelineSession() {
+        try {
+            sessionStorage.removeItem(BEELINE_SESSION_KEY);
+        } catch (e) {
+        }
+    }
+
+    function _onBeelineAuth(data) {
+        if (!data || !data.beeline || !data.beeline.session) {
+            return;
+        }
+
+        try {
+            sessionStorage.setItem(BEELINE_SESSION_KEY, data.beeline.session);
+        } catch (e) {
+        }
+
+        try {
+            const url = new URL(location.href);
+            if (url.searchParams.has('token')) {
+                url.searchParams.delete('token');
+                history.replaceState(null, '', url.toString());
+            }
+        } catch (e) {
+        }
+    }
+
+    //
+    // авторизация не прошла (например протух токен билайна) - вместо бесконечной загрузки показываем причину
+    //
+    function _showAuthError() {
+        progress.done = 1;
+
+        const spinner = document.getElementById('loading_spinner');
+        if (spinner) {
+            spinner.style.display = 'none';
+        }
+
+        const bar = document.querySelector('#loading0 .loading');
+        if (bar) {
+            bar.style.display = 'none';
+        }
+
+        const advice = document.getElementById('loading_advice');
+        if (advice) {
+            advice.style.whiteSpace = 'pre-line';
+            advice.innerText = _isBeelineHost()
+                ? 'Ссылка для входа устарела.\n\nВернитесь на сайт билайна\nи нажмите «Играть».'
+                : 'Не удалось войти в игру.\n\nПопробуйте обновить страницу.';
+        }
+    }
+
     function prepareAuthCommand() {
         let cmd = {};
 
@@ -326,11 +412,26 @@
                 guest: guest
             };
 
-        } else if (location.hostname === 'test.beeline.keepers.mobi' || location.hostname === 'beeline.keepers.mobi') {
-            partner = {
-                t: 'BEELINE',
-                auth_token: params.auth
-            };
+        } else if (_isBeelineHost()) {
+            // веб-канал приходит на тот же хост, отличается параметром: ?token= вместо ?auth=
+            const session = params.token ? null : _getBeelineSession();
+            if (params.token || session) {
+                partner = {
+                    t: 'BEELINE'
+                };
+                if (params.token) {
+                    // в браузере мог смениться абонент, поэтому свежий токен важнее старой сессии
+                    partner.token = params.token;
+                    _clearBeelineSession();
+                } else {
+                    partner.session = session;
+                }
+            } else {
+                partner = {
+                    t: 'BEELINE',
+                    auth_token: params.auth
+                };
+            }
             cmd.partner = partner;
 
         } else if (location.hostname === 'playdeck.keepers.mobi') {
@@ -361,6 +462,10 @@
             if (typeof google !== 'undefined' && google.getDeviceID) {
                 cmd.deviceID = google.getDeviceID();
             }
+        }
+
+        if (navigator.userAgent && navigator.userAgent.toLowerCase().indexOf('ovmsdk') !== -1) {
+            cmd.ovm = 1;
         }
 
         return cmd;
@@ -513,6 +618,17 @@
                                     app.Network.command(cmd, function (data) {
 
                                         console.log(data);
+
+                                        if (data.error) {
+                                            if (_isBeelineHost()) {
+                                                // протухшая сессия, чтобы следующая загрузка шла с чистого листа
+                                                _clearBeelineSession();
+                                            }
+                                            _showAuthError();
+                                            return;
+                                        }
+
+                                        _onBeelineAuth(data);
 
                                         progress.progress++;
 
@@ -774,6 +890,9 @@
                                         if (data.error) {
                                             app.Utils.processErrors(data.error);
                                         } else {
+                                            // сервер продлевает сессию билайна на каждом реконнекте
+                                            _onBeelineAuth(data);
+
                                             app.TimeUtil.init(data.cfg.server);
                                             app.Model.cfg = data.cfg;
                                             app.Model.cfg.dice = {
@@ -966,7 +1085,7 @@
     });
 </script>
 <noscript>
-    <div><img src="https://mc.yandex.ru/watch/68190592" style="position:absolute; left:-9999px;" alt="" /></div>
+    <div><img src="https://mc.yandex.ru/watch/68190592" style="position:absolute; left:-9999px;" alt=""/></div>
 </noscript>
 <!-- /Yandex.Metrika counter -->
 </body>

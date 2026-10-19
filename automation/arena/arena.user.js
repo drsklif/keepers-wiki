@@ -36,6 +36,7 @@
       lastStatusKey: null,
       lastWaitLogKey: null,
       localRt: 0,
+      ownBattleStarted: false,
       overlay: null,
       autoButton: null,
       pollTimer: null,
@@ -206,13 +207,7 @@
     }
 
     function isLiveBattleOpen() {
-      try {
-        if (!app.Popups || typeof app.Popups.getLast !== "function") return false;
-        const popup = app.Popups.getLast();
-        return Boolean(popup && popup.cfg && popup.cfg.id === "BATTLE");
-      } catch (_err) {
-        return false;
-      }
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
     }
 
     function refreshResourcesHud() {
@@ -250,6 +245,9 @@
       }
       if (!canPayBattle()) {
         lines.push(`Кристаллы: нужно ${BATTLE_COST.v}`);
+      }
+      if (isLiveBattleOpen() && !state.ownBattleStarted) {
+        lines.push("Пауза: идёт бой");
       }
       if (state.busy) lines.push("Сейчас: цикл боя");
       return lines.join("\n");
@@ -341,7 +339,9 @@
     }
 
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      if (token !== state.cycleToken || !state.autoEnabled) return false;
+      if (state.ownBattleStarted) return true;
+      return !isLiveBattleOpen();
     }
 
     function isEnemyAcceptable(enemy, ownPower) {
@@ -413,6 +413,7 @@
         `Бой (${source}): ${getEnemyName(enemy)} ${formatPower(getEnemyPower(enemy))} ` +
           `против ${formatPower(ownPower)}, авто.`
       );
+      state.ownBattleStarted = true;
       const battle = await sendCommand({ cmd: "ArenaBattle", enemy: enemyId, auto: 1 });
       if (!tokenAlive(token)) return;
 
@@ -496,10 +497,12 @@
       setTimeout(async () => {
         if (!tokenAlive(token)) {
           state.busy = false;
+          state.ownBattleStarted = false;
           return;
         }
         if (getIdleBlockReason()) {
           state.busy = false;
+          state.ownBattleStarted = false;
           updateOverlay();
           return;
         }
@@ -509,6 +512,7 @@
           log("Цикл арены упал:", err);
         } finally {
           if (token === state.cycleToken) state.busy = false;
+          state.ownBattleStarted = false;
           state.lastWaitLogKey = null;
           updateOverlay();
         }
@@ -551,6 +555,7 @@
         logWaitOnce("power", "Нет мощи боевой колоды.");
         return;
       }
+      if (source !== "poll" && source !== "boot") return;
       if (reason) return;
       scheduleCycle(source);
     }

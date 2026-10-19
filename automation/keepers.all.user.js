@@ -57,6 +57,21 @@
           app.Popups
       );
     },
+    isBattleOpen() {
+      try {
+        if (!window.app || !app.Popups) return false;
+        if (typeof app.Popups.getByID === "function") {
+          return Boolean(app.Popups.getByID("BATTLE"));
+        }
+        const last = typeof app.Popups.getLast === "function" ? app.Popups.getLast() : null;
+        return Boolean(last && last.cfg && last.cfg.id === "BATTLE");
+      } catch (_err) {
+        return false;
+      }
+    },
+    shouldPauseBackgroundAutomation() {
+      return this.isBattleOpen();
+    },
     boot() {
       const timer = setInterval(() => {
         if (!this.isAppReady()) return;
@@ -1856,8 +1871,12 @@
       }
     }
 
+    function isBackgroundPaused() {
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
+    }
+
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      return token === state.cycleToken && state.autoEnabled && !isBackgroundPaused();
     }
 
     async function refreshQuestList(token) {
@@ -1873,6 +1892,7 @@
     }
 
     async function claimQuest(quest, token) {
+      if (!tokenAlive(token)) return;
       if (Date.now() < (state.claimCooldownUntil[quest.id] || 0)) return;
       const energyBefore = Number(app.Model.user?.energy?.v);
       const claimedId = quest.id;
@@ -1924,6 +1944,7 @@
     }
 
     async function runCycle(token, source) {
+      if (!tokenAlive(token)) return;
       const beforeCount = getClaimableQuests().length;
       await refreshQuestList(token);
       if (!tokenAlive(token)) return;
@@ -1965,6 +1986,7 @@
           lines.push(`  ${line}`);
         }
       }
+      if (isBackgroundPaused()) lines.unshift("Пауза: идёт бой");
       if (state.busy) lines.push("Сейчас: проверка");
       return lines.join("\n");
     }
@@ -2058,6 +2080,7 @@
     function scheduleCycle(source) {
       if (state.busy) return;
       if (!state.autoEnabled) return;
+      if (isBackgroundPaused()) return;
 
       state.busy = true;
       const token = (state.cycleToken += 1);
@@ -2084,19 +2107,19 @@
     function scan(source) {
       if (!isUserReady()) return;
       const claimable = getClaimableQuests();
-      const statusKey = `${state.busy ? "busy" : "idle"}|${claimable.map((q) => q.id).join(",")}|${state.lastClaimed[0] || ""}`;
+      const paused = isBackgroundPaused();
+      const statusKey = `${paused ? "battle" : state.busy ? "busy" : "idle"}|${claimable.map((q) => q.id).join(",")}|${state.lastClaimed[0] || ""}`;
       if (statusKey !== state.lastStatusKey) {
         state.lastStatusKey = statusKey;
         updateOverlay();
       }
       if (!state.autoEnabled) return;
-      if (source === "poll" || source === "boot") {
-        scheduleCycle(source);
+      if (paused) {
+        logWaitOnce("battle", "Идёт бой, задания подождём.");
         return;
       }
-      if (claimable.length > 0 && !state.busy) {
-        scheduleCycle(source);
-      }
+      if (source !== "poll" && source !== "boot") return;
+      scheduleCycle(source);
     }
 
     function hookEvents() {
@@ -2183,6 +2206,7 @@
       lastStatusKey: null,
       lastWaitLogKey: null,
       localRt: 0,
+      ownBattleStarted: false,
       overlay: null,
       autoButton: null,
       pollTimer: null,
@@ -2353,13 +2377,7 @@
     }
 
     function isLiveBattleOpen() {
-      try {
-        if (!app.Popups || typeof app.Popups.getLast !== "function") return false;
-        const popup = app.Popups.getLast();
-        return Boolean(popup && popup.cfg && popup.cfg.id === "BATTLE");
-      } catch (_err) {
-        return false;
-      }
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
     }
 
     function refreshResourcesHud() {
@@ -2397,6 +2415,9 @@
       }
       if (!canPayBattle()) {
         lines.push(`Кристаллы: нужно ${BATTLE_COST.v}`);
+      }
+      if (isLiveBattleOpen() && !state.ownBattleStarted) {
+        lines.push("Пауза: идёт бой");
       }
       if (state.busy) lines.push("Сейчас: цикл боя");
       return lines.join("\n");
@@ -2488,7 +2509,9 @@
     }
 
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      if (token !== state.cycleToken || !state.autoEnabled) return false;
+      if (state.ownBattleStarted) return true;
+      return !isLiveBattleOpen();
     }
 
     function isEnemyAcceptable(enemy, ownPower) {
@@ -2560,6 +2583,7 @@
         `Бой (${source}): ${getEnemyName(enemy)} ${formatPower(getEnemyPower(enemy))} ` +
           `против ${formatPower(ownPower)}, авто.`
       );
+      state.ownBattleStarted = true;
       const battle = await sendCommand({ cmd: "ArenaBattle", enemy: enemyId, auto: 1 });
       if (!tokenAlive(token)) return;
 
@@ -2643,10 +2667,12 @@
       setTimeout(async () => {
         if (!tokenAlive(token)) {
           state.busy = false;
+          state.ownBattleStarted = false;
           return;
         }
         if (getIdleBlockReason()) {
           state.busy = false;
+          state.ownBattleStarted = false;
           updateOverlay();
           return;
         }
@@ -2656,6 +2682,7 @@
           log("Цикл арены упал:", err);
         } finally {
           if (token === state.cycleToken) state.busy = false;
+          state.ownBattleStarted = false;
           state.lastWaitLogKey = null;
           updateOverlay();
         }
@@ -2698,6 +2725,7 @@
         logWaitOnce("power", "Нет мощи боевой колоды.");
         return;
       }
+      if (source !== "poll" && source !== "boot") return;
       if (reason) return;
       scheduleCycle(source);
     }
@@ -3205,8 +3233,12 @@
       log(`Клетка ${num}: ${text}.`);
     }
 
+    function isBackgroundPaused() {
+      return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
+    }
+
     function tokenAlive(token) {
-      return token === state.cycleToken && state.autoEnabled;
+      return token === state.cycleToken && state.autoEnabled && !isBackgroundPaused();
     }
 
     async function claimChest(spec, token) {
@@ -3261,6 +3293,7 @@
     }
 
     async function runCycle(token, source) {
+      if (!tokenAlive(token)) return;
       const chests = getReadyChests();
       for (const spec of chests) {
         if (!tokenAlive(token)) return;
@@ -3293,6 +3326,7 @@
 
     function getIdleBlockReason() {
       if (!state.autoEnabled) return "выкл";
+      if (isBackgroundPaused()) return "battle";
       if (getReadyChests().length > 0) return null;
       const cave = getCave();
       if (!cave && !app.Model.user?.dungeon) return "no-dungeon";
@@ -3353,6 +3387,7 @@
           lines.push(`  Сегодня всего: ${todaySummary}`);
         }
       }
+      if (isBackgroundPaused()) lines.unshift("Пауза: идёт бой");
       if (state.busy) lines.push("Сейчас: команда");
       return lines.length > 0 ? lines.join("\n") : "Подземелье: нет данных";
     }
@@ -3484,6 +3519,10 @@
       }
 
       if (!state.autoEnabled) return;
+      if (reason === "battle") {
+        logWaitOnce("battle", "Идёт бой, подземелье подождём.");
+        return;
+      }
       if (reason === "no-dungeon") {
         logWaitOnce("no-dungeon", "Подземелье в модели ещё нет.");
         return;
@@ -3507,6 +3546,7 @@
         logWaitOnce("idle", "Сундуков нет, каменоломня ждёт.");
         return;
       }
+      if (source !== "poll" && source !== "boot") return;
       if (reason) return;
       scheduleCycle(source);
     }
