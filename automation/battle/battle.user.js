@@ -42,6 +42,9 @@
         retrySkipOverlay: 100,
         // [Старт] Задержка перед логом «Battle UI is ready».
         battleReady: 400,
+        // [Фаза 1] Сколько ждать .sh_card после CARD_SELECTION.
+        // Сервер уже в выборе карт, а клиент ещё крутит загрузку и «VS».
+        cardDomWaitMs: 15000,
       },
       // [Фаза 2] Абсолютный TweenMax-scale на время анимации броска кубиков (не умножается на кнопку «Скорость»).
       diceRollAnimBoostScale: 3.2,
@@ -323,18 +326,34 @@
       applyBattleTweenScale(source || "dice-boost-end");
     }
 
-    function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen) {
-      const popup = safeGetBattlePopup();
-      if (!popup) {
-        log("Фаза 1: автовыбор DOM — попап BATTLE не найден.");
+    function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen, deadline) {
+      if (gen !== state.cardSelectionGen || !state.autoEnabled || state.currentPhase !== "CARD_SELECTION") {
         state.autoSelectionPendingKey = null;
         return;
       }
-      const roots = listBattleCardChoiceRoots(popup);
+      const popup = safeGetBattlePopup();
+      const roots = popup ? listBattleCardChoiceRoots(popup) : [];
       if (!roots[bestIdx]) {
-        log(
-          `Фаза 1: автовыбор DOM — нет карты idx=${bestIdx} (элементов .sh_card среди детей scroll: ${roots.length}). (${sourceLabel})`
-        );
+        const limit = deadline || Date.now() + CONFIG.cardDomWaitMs;
+        if (Date.now() < limit) {
+          if (!deadline) {
+            log(
+              `Фаза 1: карты ещё рисуются (idx=${bestIdx}, .sh_card=${roots.length}). Жду экран выбора. (${sourceLabel})`
+            );
+          }
+          setTimeout(
+            () => performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen, limit),
+            scaleDelay(CONFIG.delays.retryPollReady)
+          );
+          return;
+        }
+        if (!popup) {
+          log("Фаза 1: автовыбор DOM — попап BATTLE не найден.");
+        } else {
+          log(
+            `Фаза 1: автовыбор DOM — нет карты idx=${bestIdx} (элементов .sh_card среди детей scroll: ${roots.length}). (${sourceLabel})`
+          );
+        }
         state.autoSelectionPendingKey = null;
         return;
       }
@@ -371,7 +390,7 @@
         state.lastAutoCardKey = scoredKey;
         state.autoSelectionPendingKey = null;
         log(
-          `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
+          `Фаза 1: автовыбор через UI (карта + «В бой!»): idx=${best.idx}, id=${best.id}, name="${best.name}", ${formatChosenCard(best)}. (${sourceLabel})`
         );
       };
       setTimeout(() => tryConfirm(0), confirmMs);
@@ -905,6 +924,74 @@
       }
     }
 
+    function isChamptBattle() {
+      const popup = safeGetBattlePopup();
+      return Boolean(popup && popup.cfg && popup.cfg.champt);
+    }
+
+    function comboTypes(type) {
+      if (Array.isArray(type)) return type;
+      if (typeof type === "string" && type) return [type];
+      return [];
+    }
+
+    function weekBonus(types, value) {
+      const stat = Number(value) || 0;
+      if (stat <= 0) return 0;
+      try {
+        return Number(app.UserUtil.calculateCardComboTypesWeekBonus(comboTypes(types), stat)) || 0;
+      } catch (_err) {
+        return 0;
+      }
+    }
+
+    function maxCardStars(cardId) {
+      try {
+        const stars = Number(app.CFGUtil.getCardStarsMax(cardId));
+        return Number.isFinite(stars) && stars > 0 ? stars : 0;
+      } catch (_err) {
+        return 0;
+      }
+    }
+
+    function champtBattleCard(cardId) {
+      if (!isValidCardId(cardId)) return null;
+      const cfg = app.CFGUtil.getCardByID(cardId);
+      if (!cfg) return null;
+      const stars = maxCardStars(cardId);
+      const combos = Array.isArray(cfg.combos) ? cfg.combos : [];
+      let power = 0;
+      try {
+        const levels = combos.map(() => 100);
+        power = Number(app.CFGUtil.getCardPower(cardId, 100, stars, levels)) || 0;
+      } catch (_err) {
+        power = 0;
+      }
+      let hit = 0;
+      let heal = 0;
+      combos.forEach((combo) => {
+        let scaled = combo;
+        try {
+          scaled = app.UserUtil.cardComboOnLevel(cfg, combo, 100, stars) || combo;
+        } catch (_err) {
+          scaled = combo;
+        }
+        const types = comboTypes(scaled.type || combo.type);
+        const comboHit = Number(scaled.hit) || 0;
+        const comboHeal = Number(scaled.heal) || 0;
+        hit += comboHit + weekBonus(types, comboHit);
+        heal += comboHeal + weekBonus(types, comboHeal);
+      });
+      return { power, hit, heal, output: hit + heal, stars };
+    }
+
+    function formatChosenCard(best) {
+      if (best && best.champt) {
+        return `pwr100=${best.power} stars=${best.stars} hit=${best.hit} heal=${best.heal}`;
+      }
+      return `power=${best?.power} dmgMagic=${best?.dmg?.magic} dmgNormal=${best?.dmg?.normal}`;
+    }
+
     function pickBestFromPhaseCards(cards) {
       const getCardQualityInfo = (cardId) => {
         if (!isValidCardId(cardId)) return { quality: -1, qualityName: "?" };
@@ -934,15 +1021,32 @@
         return { normal, magic, total: normal + magic };
       };
 
+      const champt = isChamptBattle();
       const scored = cards
-        .map((card, idx) => ({
-          idx,
-          id: getCardId(card, idx),
-          name: getCardName(getCardId(card, idx)),
-          power: getCardPower(getCardId(card, idx)),
-          ...getCardQualityInfo(getCardId(card, idx)),
-          dmg: getCardDamageStats(card),
-        }))
+        .map((card, idx) => {
+          const id = getCardId(card, idx);
+          const entry = {
+            idx,
+            id,
+            name: getCardName(id),
+            power: getCardPower(id),
+            ...getCardQualityInfo(id),
+            dmg: getCardDamageStats(card),
+            champt: false,
+          };
+          if (!champt) return entry;
+          const built = champtBattleCard(id);
+          if (!built) return entry;
+          return {
+            ...entry,
+            champt: true,
+            power: built.power,
+            hit: built.hit,
+            heal: built.heal,
+            output: built.output,
+            stars: built.stars,
+          };
+        })
         .filter((entry) => typeof entry.power === "number");
 
       if (scored.length === 0) {
@@ -959,11 +1063,20 @@
       }
 
       scored.sort((a, b) => {
+        if (a.champt || b.champt) {
+          const aOut = Number(a.output) || 0;
+          const bOut = Number(b.output) || 0;
+          if (bOut !== aOut) return bOut - aOut;
+        } else if (b.power !== a.power) {
+          return b.power - a.power;
+        }
         if (b.power !== a.power) return b.power - a.power;
         if (b.quality !== a.quality) return b.quality - a.quality;
-        if (b.dmg.total !== a.dmg.total) return b.dmg.total - a.dmg.total;
-        if (b.dmg.magic !== a.dmg.magic) return b.dmg.magic - a.dmg.magic;
-        if (b.dmg.normal !== a.dmg.normal) return b.dmg.normal - a.dmg.normal;
+        if (!a.champt && !b.champt) {
+          if (b.dmg.total !== a.dmg.total) return b.dmg.total - a.dmg.total;
+          if (b.dmg.magic !== a.dmg.magic) return b.dmg.magic - a.dmg.magic;
+          if (b.dmg.normal !== a.dmg.normal) return b.dmg.normal - a.dmg.normal;
+        }
         return a.idx - b.idx;
       });
       const best = scored[0];
@@ -1202,10 +1315,12 @@
 
       const { best, scoredKey, scored } = picked;
       const cardsListLine = scored
-        .map(
-          (c) =>
-            `idx=${c.idx} "${c.name}" rare=${c.qualityName}(${c.quality}) power=${c.power} totalDmg=${c.dmg.total}`
-        );
+        .map((c) => {
+          const stats = c.champt
+            ? `pwr100=${c.power} stars=${c.stars} hit=${c.hit} heal=${c.heal}`
+            : `power=${c.power} totalDmg=${c.dmg.total}`;
+          return `idx=${c.idx} "${c.name}" rare=${c.qualityName}(${c.quality}) ${stats}`;
+        });
       log(`Фаза 1 карты:\n${cardsListLine.join("\n")}\n(${sourceLabel})`);
 
       if (state.autoEnabled && (!Array.isArray(triple) || triple.length < 1)) {
@@ -1228,7 +1343,7 @@
           if (state.lastRecommendationKey === scoredKey) return;
           state.lastRecommendationKey = scoredKey;
           log(
-            `Фаза 1 рекомендация (после ~${waitMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
+            `Фаза 1 рекомендация (после ~${waitMs}ms анимации UI): выбрать карту idx=${best.idx}, id=${best.id}, name="${best.name}", ${formatChosenCard(best)}. (${sourceLabel})`
           );
         }, waitMs);
         return;
@@ -1255,7 +1370,7 @@
 
         const gapMs = cardActionGapDelay();
         log(
-          `Фаза 1: автовыбор — UI ~${waitMs}ms + пауза ${gapMs}ms — idx=${best.idx}, name="${best.name}", power=${best.power}, dmgMagic=${best.dmg.magic}, dmgNormal=${best.dmg.normal}. (${sourceLabel})`
+          `Фаза 1: автовыбор — UI ~${waitMs}ms + пауза ${gapMs}ms — idx=${best.idx}, name="${best.name}", ${formatChosenCard(best)}. (${sourceLabel})`
         );
 
         setTimeout(() => {
