@@ -46,6 +46,8 @@
         // Сервер уже в выборе карт, а клиент ещё крутит загрузку и «VS».
         cardDomWaitMs: 15000,
       },
+      // [Фаза 2] Макс. число кубиков дополнительной стихии (гибридные комбо type: [et, other]).
+      maxSecondaryElementDice: 2,
       // [Фаза 2] Абсолютный TweenMax-scale на время анимации броска кубиков (не умножается на кнопку «Скорость»).
       diceRollAnimBoostScale: 3.2,
       // [Фаза 1] Множитель к выбранной скорости UI на время CARD_SELECTION (анимации + задержки).
@@ -1091,11 +1093,17 @@
       return dices.map((d, i) => `${i}:${d?.t ?? "?"}(s=${d?.s ? 1 : 0})`).join(", ");
     }
 
-    function getBattleCardCfgForDicePhase(battle) {
+    function getBattleCardForDicePhase(battle) {
       const idx = battle?.m1?.cardIDX;
       const cards = battle?.m1?.cards;
       if (typeof idx !== "number" || idx < 0 || !Array.isArray(cards) || !cards[idx]) return null;
-      const cid = getCardId(cards[idx], idx);
+      return cards[idx];
+    }
+
+    function getBattleCardCfgForDicePhase(battle) {
+      const card = getBattleCardForDicePhase(battle);
+      if (!card) return null;
+      const cid = getCardId(card, battle?.m1?.cardIDX ?? 0);
       if (typeof cid !== "number" || !isValidCardId(cid)) return null;
       try {
         return app.CFGUtil.getCardByID(cid) || null;
@@ -1104,22 +1112,44 @@
       }
     }
 
+    /** Доп. стихии из гибридных комбо (type содержит F/N/W ≠ основной et). */
+    function collectSecondaryElements(card, primaryEt) {
+      const secondary = [];
+      const seen = new Set();
+      const combos = Array.isArray(card?.combos) ? card.combos : [];
+      for (const combo of combos) {
+        const types = Array.isArray(combo?.type) ? combo.type : [];
+        for (const t of types) {
+          if ((t === "F" || t === "N" || t === "W") && t !== primaryEt && !seen.has(t)) {
+            seen.add(t);
+            secondary.push(t);
+          }
+        }
+      }
+      return secondary;
+    }
+
     /**
      * Маска для BattleDiceRoll.dices: 1 = держать кубик, 0 = отпустить (пойдёт в переброс).
      * У кубиков в бою только грани F / N / W / HIT (см. CFGUtil.getElemIMGByType).
-     * — Простая карта (quality===0): имеет смысл удерживать только HIT; стихии F/N/W гоняем.
-     * — Необычная и выше (quality>=1): у карты есть основная стихия et (часто F/N/W); держим HIT и все грани, совпадающие с et.
+     * — Простая карта (quality===0): только HIT; стихии F/N/W гоняем.
+     * — Необычная и выше: HIT + все грани основной стихии et.
+     * — Гибриды (комбо type: [et, other]): дополнительно до maxSecondaryElementDice граней other.
      */
     function buildDiceHoldMaskFromBattle(battle, dices) {
       const n = Array.isArray(dices) ? dices.length : 0;
       if (n === 0) return { mask: [], note: "нет кубиков", cardLine: "" };
 
+      const card = getBattleCardForDicePhase(battle);
       const cfg = getBattleCardCfgForDicePhase(battle);
       const quality = typeof cfg?.quality === "number" ? cfg.quality : 0;
       const et = typeof cfg?.et === "string" ? cfg.et.trim() : "";
       const name = cfg && typeof cfg.name === "string" ? cfg.name.trim() : "";
+      const secondaryEls = collectSecondaryElements(card, et);
+      const maxSecondary = Math.max(0, Number(CONFIG.maxSecondaryElementDice) || 0);
       const cardLine = cfg
-        ? `карта хода: «${name || "без имени"}» quality=${quality} et=${et || "—"}`
+        ? `карта хода: «${name || "без имени"}» quality=${quality} et=${et || "—"}` +
+          (secondaryEls.length ? ` secondary=${secondaryEls.join(",")}` : "")
         : "карта хода: не удалось сопоставить m1.cardIDX + CFGUtil.getCardByID — только логика HIT";
 
       const mask = new Array(n).fill(0);
@@ -1136,6 +1166,24 @@
         }
       }
 
+      let secondaryHeld = 0;
+      if (!isSimple && secondaryEls.length > 0 && maxSecondary > 0) {
+        const secondarySet = new Set(secondaryEls);
+        const candidates = [];
+        for (let i = 0; i < n; i += 1) {
+          const die = dices[i];
+          if (!die || !secondarySet.has(die.t)) continue;
+          candidates.push({ i, locked: Boolean(die.s) });
+        }
+        // Уже зафиксированные — приоритетнее, чтобы не снимать выбор игрока/прошлого шага.
+        candidates.sort((a, b) => Number(b.locked) - Number(a.locked) || a.i - b.i);
+        const take = Math.min(maxSecondary, candidates.length);
+        for (let k = 0; k < take; k += 1) {
+          mask[candidates[k].i] = 1;
+          secondaryHeld += 1;
+        }
+      }
+
       const held = mask.reduce((a, v) => a + (v ? 1 : 0), 0);
       let note;
       if (isSimple) {
@@ -1143,6 +1191,8 @@
           held > 0
             ? "простая карта: держим только грани HIT, F/N/W — на переброс"
             : "простая карта: HIT на столе нет — перебрасываем все кубики (ищем HIT)";
+      } else if (elemIsFNW && secondaryEls.length > 0) {
+        note = `гибрид: держим HIT + ${et} + до ${maxSecondary}×[${secondaryEls.join(",")}] (взято ${secondaryHeld})`;
       } else if (elemIsFNW) {
         note = `магическая карта: держим HIT и все грани стихии ${et} (остальное на переброс)`;
       } else {
