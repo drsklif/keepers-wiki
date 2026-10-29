@@ -11,6 +11,7 @@ files=(
     "arena/arena.user.js"
     "dungeon/dungeon.user.js"
     "tournament-champions/champions.user.js"
+    "tournament-frena/frena.user.js"
 )
 
 for file in "${files[@]}"; do

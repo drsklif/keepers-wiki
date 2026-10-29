@@ -1,4 +1,5 @@
 *.har
+frena-har-summary.json
 
 .DS_Store
 Thumbs.db
