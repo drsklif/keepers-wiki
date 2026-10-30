@@ -35,7 +35,7 @@
       maxPicksPerCycle: 6,
       draftMinWaitMs: 2000,
       draftStableMs: 1500,
-      draftMaxWaitMs: 10000,
+      draftMaxWaitMs: 14000,
       delays: {
         afterReady: 400,
         afterReadyJitter: 350,
