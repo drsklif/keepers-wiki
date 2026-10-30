@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Keepers Helper
 // @namespace    https://keepers.local/
-// @version      0.1.0
+// @version      0.2.0
 // @description		Automation of actions for the game Keepers
 // @description:en	Automation of actions for the game Keepers
 // @description:ru	Автоматизация рутинных действий в игре Keepers
@@ -14,7 +14,12 @@
 (function () {
   "use strict";
 
+  // Версия сборки. Должна совпадать с // @version в шапке.
+  // PATCH — исправление, MINOR — новое поведение, MAJOR — ломающее изменение API или ключей хранения.
+  const VERSION = "0.2.0";
+
   const helper = {
+    version: VERSION,
     config: {
       debug: true,
       appReadyPollMs: 500,
@@ -28,9 +33,10 @@
       if (!this.config.debug) return;
       console.log("[KeepersHelper]", ...args);
     },
-    registerModule(name, initFn) {
+    registerModule(name, initFn, version) {
       if (typeof initFn !== "function") return;
-      this.modules.push({ name, initFn });
+      const moduleVersion = typeof version === "string" && version.trim() ? version.trim() : "";
+      this.modules.push({ name, initFn, version: moduleVersion });
       this.log(`Module registered: ${name}`);
       if (this.state.appReady) {
         this.initModules();
@@ -43,7 +49,8 @@
       for (const mod of this.modules) {
         try {
           mod.initFn(this);
-          this.log(`Module initialized: ${mod.name}`);
+          const versionLabel = mod.version ? ` ${mod.version}` : "";
+          this.log(`Module initialized: ${mod.name}${versionLabel}`);
         } catch (err) {
           this.log(`Module init failed: ${mod.name}`, err);
         }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Keepers Helper
 // @namespace    https://keepers.local/
-// @version      0.1.0
+// @version      0.2.0
 // @description		Automation of actions for the game Keepers
 // @description:en	Automation of actions for the game Keepers
 // @description:ru	Автоматизация рутинных действий в игре Keepers
@@ -14,7 +14,12 @@
 (function () {
   "use strict";
 
+  // Версия сборки. Должна совпадать с // @version в шапке.
+  // PATCH — исправление, MINOR — новое поведение, MAJOR — ломающее изменение API или ключей хранения.
+  const VERSION = "0.2.0";
+
   const helper = {
+    version: VERSION,
     config: {
       debug: true,
       appReadyPollMs: 500,
@@ -28,9 +33,10 @@
       if (!this.config.debug) return;
       console.log("[KeepersHelper]", ...args);
     },
-    registerModule(name, initFn) {
+    registerModule(name, initFn, version) {
       if (typeof initFn !== "function") return;
-      this.modules.push({ name, initFn });
+      const moduleVersion = typeof version === "string" && version.trim() ? version.trim() : "";
+      this.modules.push({ name, initFn, version: moduleVersion });
       this.log(`Module registered: ${name}`);
       if (this.state.appReady) {
         this.initModules();
@@ -43,7 +49,8 @@
       for (const mod of this.modules) {
         try {
           mod.initFn(this);
-          this.log(`Module initialized: ${mod.name}`);
+          const versionLabel = mod.version ? ` ${mod.version}` : "";
+          this.log(`Module initialized: ${mod.name}${versionLabel}`);
         } catch (err) {
           this.log(`Module init failed: ${mod.name}`, err);
         }
@@ -91,6 +98,8 @@
 (function () {
   "use strict";
 
+  const MODULE_VERSION = "0.2.0";
+
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
     console.warn("[KeepersHelper/Battle] Core module is missing.");
@@ -98,6 +107,9 @@
   }
 
   helper.registerModule("battle-detector", (core) => {
+    const STORAGE_AUTO_ENABLED = "keepersHelper.battle.autoEnabled";
+    const STORAGE_UI_SPEED_INDEX = "keepersHelper.battle.uiSpeedIndex";
+
     const CONFIG = {
       // Опорная скорость UI: значения в delays откалиброваны при этом множителе (x1.5).
       referenceSpeed: 1.5,
@@ -150,10 +162,53 @@
       popupMissThreshold: 3,
     };
 
+    function loadAutoEnabled() {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_AUTO_ENABLED);
+        if (raw === "0") return false;
+        if (raw === "1") return true;
+      } catch (_err) {
+        // ignore
+      }
+      return true;
+    }
+
+    function saveAutoEnabled() {
+      try {
+        window.localStorage.setItem(STORAGE_AUTO_ENABLED, state.autoEnabled ? "1" : "0");
+      } catch (_err) {
+        // ignore
+      }
+    }
+
+    function loadUiSpeedIndex() {
+      const levels =
+        Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0
+          ? CONFIG.uiSpeedLevels
+          : [1.5];
+      try {
+        const raw = window.localStorage.getItem(STORAGE_UI_SPEED_INDEX);
+        if (raw == null || raw === "") return 0;
+        const idx = Number(raw);
+        if (!Number.isInteger(idx)) return 0;
+        return Math.max(0, Math.min(idx, levels.length - 1));
+      } catch (_err) {
+        return 0;
+      }
+    }
+
+    function saveUiSpeedIndex() {
+      try {
+        window.localStorage.setItem(STORAGE_UI_SPEED_INDEX, String(state.uiSpeedIndex));
+      } catch (_err) {
+        // ignore
+      }
+    }
+
     const state = {
       battleActive: false,
       readyLogged: false,
-      autoEnabled: true,
+      autoEnabled: loadAutoEnabled(),
       popupMisses: 0,
       currentPhase: null,
       currentPhaseSource: null,
@@ -170,7 +225,7 @@
       diceAnimBoostActive: false,
       diceAnimPrevScale: 1,
       diceAnimBoostTimer: null,
-      uiSpeedIndex: 0,
+      uiSpeedIndex: loadUiSpeedIndex(),
       cardSelectionGen: 0,
       noContextLogged: false,
       powerErrorLogged: false,
@@ -488,9 +543,14 @@
       setTimeout(() => tryConfirm(0), confirmMs);
     }
 
+    function idleStatusText() {
+      const version = typeof core.version === "string" ? core.version.trim() : "";
+      return version ? `KH ${version}` : "KH";
+    }
+
     function updateOverlay() {
       if (!state.overlay) return;
-      const status = state.battleActive ? "BATTLE" : "IDLE";
+      const status = state.battleActive ? "BATTLE" : idleStatusText();
       state.overlay.querySelector(".ab-status").textContent = status;
       if (state.autoButton) {
         if (state.autoEnabled) {
@@ -549,7 +609,7 @@
 
       const status = document.createElement("div");
       status.className = "ab-status";
-      status.textContent = "IDLE";
+      status.textContent = idleStatusText();
 
       const autoBtn = document.createElement("button");
       autoBtn.type = "button";
@@ -563,6 +623,7 @@
       autoBtn.addEventListener("click", () => {
         state.autoEnabled = !state.autoEnabled;
         state.cardSelectionGen += 1;
+        saveAutoEnabled();
         log("Автобой:", state.autoEnabled ? "вкл" : "выкл");
         updateOverlay();
       });
@@ -579,6 +640,7 @@
       speedBtn.addEventListener("click", () => {
         const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
         state.uiSpeedIndex = (state.uiSpeedIndex + 1) % levels.length;
+        saveUiSpeedIndex();
         if (state.diceAnimBoostActive) {
           state.diceAnimPrevScale = getSelectedUiSpeed();
         }
@@ -593,8 +655,6 @@
       state.overlay = root;
       state.autoButton = autoBtn;
       state.speedButton = speedBtn;
-      const levels = Array.isArray(CONFIG.uiSpeedLevels) && CONFIG.uiSpeedLevels.length > 0 ? CONFIG.uiSpeedLevels : [1.5];
-      state.uiSpeedIndex = 0;
       applyBattleTweenScale("init");
       updateOverlay();
     }
@@ -1829,11 +1889,13 @@
     hookCommandResponses();
     startPopupPolling();
     log("Battle detector initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 
 (function () {
   "use strict";
+
+  const MODULE_VERSION = "0.1.0";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -2330,11 +2392,13 @@
     ensureOverlay();
     waitForUser();
     log("Quests claim module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 
 (function () {
   "use strict";
+
+  const MODULE_VERSION = "0.1.0";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -2938,11 +3002,13 @@
     ensureOverlay();
     waitForUser();
     log("Arena auto module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 
 (function () {
   "use strict";
+
+  const MODULE_VERSION = "0.1.0";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -3760,11 +3826,13 @@
     ensureOverlay();
     waitForUser();
     log("Dungeon auto module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 
 (function () {
   "use strict";
+
+  const MODULE_VERSION = "0.1.0";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -4987,11 +5055,13 @@
     ensureOverlay();
     waitForUser();
     log("Champions auto module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 
 (function () {
   "use strict";
+
+  const MODULE_VERSION = "0.1.0";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -5966,6 +6036,6 @@
     ensureOverlay();
     waitForUser();
     log("Frena auto module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
 

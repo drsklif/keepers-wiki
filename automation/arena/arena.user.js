@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  const MODULE_VERSION = "0.1.0";
+
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
     console.warn("[KeepersHelper/Arena] Core module is missing.");
@@ -603,5 +605,5 @@
     ensureOverlay();
     waitForUser();
     log("Arena auto module initialized.");
-  });
+  }, MODULE_VERSION);
 })();
