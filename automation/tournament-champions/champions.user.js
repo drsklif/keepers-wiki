@@ -9,6 +9,7 @@
 
   helper.registerModule("champions-auto", (core) => {
     const STORAGE_KEY = "keepersHelper.champions.autoEnabled";
+    const STORAGE_RESULTS = "keepersHelper.champions.results";
     const MAX_FIGHTS = 5;
     const MAX_HEALERS = 2;
     // Топ воды и огня важнее любой карты природы в паре.
@@ -83,6 +84,7 @@
       overlay: null,
       autoButton: null,
       pollTimer: null,
+      results: loadResults(),
     };
 
     function log(...args) {
@@ -106,6 +108,55 @@
       } catch (_err) {
         // ignore
       }
+    }
+
+    function emptyResults(period) {
+      return { period, tournaments: [] };
+    }
+
+    function currentPeriodKey() {
+      try {
+        const moscow = app.TimeUtil._getMoscowTime(app.TimeUtil.now());
+        const y = moscow.getFullYear();
+        const m = String(moscow.getMonth() + 1).padStart(2, "0");
+        const d = String(moscow.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    function loadResults() {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_RESULTS);
+        if (!raw) return emptyResults(null);
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return emptyResults(null);
+        return {
+          period: parsed.period != null ? String(parsed.period) : null,
+          tournaments: Array.isArray(parsed.tournaments) ? parsed.tournaments : [],
+        };
+      } catch (_err) {
+        return emptyResults(null);
+      }
+    }
+
+    function saveResults() {
+      try {
+        window.localStorage.setItem(STORAGE_RESULTS, JSON.stringify(state.results));
+      } catch (_err) {
+        // ignore
+      }
+    }
+
+    function ensurePeriodResults() {
+      const period = currentPeriodKey();
+      if (!period) return state.results;
+      if (state.results.period !== period) {
+        state.results = emptyResults(period);
+        saveResults();
+      }
+      return state.results;
     }
 
     function jitterDelay(baseMs, jitterMs) {
@@ -504,6 +555,69 @@
       return "поражение";
     }
 
+    function countOutcomes(fights) {
+      const me = app.Model.user.id;
+      let wins = 0;
+      let losses = 0;
+      let draws = 0;
+      (fights || []).forEach((row) => {
+        if (!row || row.result == null) return;
+        if (row.result === 0) draws += 1;
+        else if (row.result === me) wins += 1;
+        else losses += 1;
+      });
+      return { wins, losses, draws };
+    }
+
+    function noteTournamentResult() {
+      if (!isEnrolled()) return;
+      const phase = getPhase();
+      if (phase !== 4 && phase !== 5) return;
+      const champt = getChampt();
+      const entry = getMyEntry();
+      if (!champt || !entry || champt.st == null) return;
+      const id = String(champt.st);
+      const outcomes = countOutcomes(getMyFights());
+      const record = {
+        id,
+        place: Number(entry.place) || 0,
+        points: Number(entry.points) || 0,
+        wins: outcomes.wins,
+        losses: outcomes.losses,
+        draws: outcomes.draws,
+        at: app.TimeUtil.now(),
+      };
+      const results = ensurePeriodResults();
+      const index = results.tournaments.findIndex((item) => item && item.id === id);
+      if (index >= 0) {
+        results.tournaments[index] = record;
+      } else {
+        results.tournaments.push(record);
+        log(
+          `Итог сохранён: место ${record.place}, ${record.points} оч. (${record.wins}П ${record.losses}Пор ${record.draws}Н).`
+        );
+      }
+      saveResults();
+    }
+
+    function formatDayResults() {
+      const list = ensurePeriodResults().tournaments || [];
+      if (!list.length) return ["Сегодня турниров ещё не было"];
+      const totalPoints = list.reduce((sum, item) => sum + (Number(item.points) || 0), 0);
+      const wins = list.reduce((sum, item) => sum + (Number(item.wins) || 0), 0);
+      const losses = list.reduce((sum, item) => sum + (Number(item.losses) || 0), 0);
+      const draws = list.reduce((sum, item) => sum + (Number(item.draws) || 0), 0);
+      const lines = [
+        `Сегодня: ${list.length}, ${totalPoints} оч., ${wins}П ${losses}Пор ${draws}Н`,
+      ];
+      list.forEach((item, index) => {
+        lines.push(
+          `${index + 1}) место ${item.place ?? "?"}, ${item.points ?? 0} оч. — ${item.wins || 0}П ${item.losses || 0}Пор ${item.draws || 0}Н`
+        );
+      });
+      return lines;
+    }
+
     function syncFights() {
       const champt = getChampt();
       const key = champt ? `${champt.st || 0}:${getPhase()}` : "";
@@ -657,37 +771,42 @@
     }
 
     function describeSnapshot() {
+      const lines = [];
       const champt = getChampt();
-      if (!champt) return "Турнира нет";
-      const phase = getPhase();
-      const lines = [`Фаза: ${PHASE_LABEL[phase] || phase}`];
-      if (phase === 0) {
-        const left = timeLeft(champt.st);
-        lines.push(left > 0 ? `Запись через ${formatRemain(left)}` : "Ждём запись");
-      } else if (phase === 1) {
-        const left = timeLeft(champt.state?.t);
-        lines.push(isEnrolled() ? "Записан" : "Не записан");
-        if (left != null) lines.push(left > 0 ? `До старта ${formatRemain(left)}` : "Старт");
-        if (champt.qSize != null) lines.push(`В очереди: ${champt.qSize}`);
-      } else if (phase === 3) {
-        const fights = getMyFights();
-        const entry = getMyEntry();
-        lines.push(`Бои: ${fights.length} из ${MAX_FIGHTS}`);
-        if (entry) lines.push(`Место ${entry.place ?? "?"}, очки ${entry.points ?? "?"}`);
-        const left = timeLeft(champt.state?.t);
-        if (left != null) lines.push(left > 0 ? `До конца ${formatRemain(left)}` : "Завершение");
-        if (isChoicePhase()) {
-          if (getChoice() && !draftTimersReady()) lines.push(draftWaitDetail());
-          else lines.push(getChoice() ? "Выбор карты" : "Ждём пару или бой");
-          lines.push(`Лечение: ${countHealers()} из ${MAX_HEALERS}`);
+      if (!champt) {
+        lines.push("Турнира нет");
+      } else {
+        const phase = getPhase();
+        lines.push(`Фаза: ${PHASE_LABEL[phase] || phase}`);
+        if (phase === 0) {
+          const left = timeLeft(champt.st);
+          lines.push(left > 0 ? `Запись через ${formatRemain(left)}` : "Ждём запись");
+        } else if (phase === 1) {
+          const left = timeLeft(champt.state?.t);
+          lines.push(isEnrolled() ? "Записан" : "Не записан");
+          if (left != null) lines.push(left > 0 ? `До старта ${formatRemain(left)}` : "Старт");
+          if (champt.qSize != null) lines.push(`В очереди: ${champt.qSize}`);
+        } else if (phase === 3) {
+          const fights = getMyFights();
+          const entry = getMyEntry();
+          lines.push(`Бои: ${fights.length} из ${MAX_FIGHTS}`);
+          if (entry) lines.push(`Место ${entry.place ?? "?"}, очки ${entry.points ?? "?"}`);
+          const left = timeLeft(champt.state?.t);
+          if (left != null) lines.push(left > 0 ? `До конца ${formatRemain(left)}` : "Завершение");
+          if (isChoicePhase()) {
+            if (getChoice() && !draftTimersReady()) lines.push(draftWaitDetail());
+            else lines.push(getChoice() ? "Выбор карты" : "Ждём пару или бой");
+            lines.push(`Лечение: ${countHealers()} из ${MAX_HEALERS}`);
+          }
+        } else if (phase === 4 || phase === 5) {
+          const entry = getMyEntry();
+          if (entry) lines.push(`Место ${entry.place ?? "?"}, очки ${entry.points ?? "?"}`);
         }
-      } else if (phase === 4 || phase === 5) {
-        const entry = getMyEntry();
-        if (entry) lines.push(`Место ${entry.place ?? "?"}, очки ${entry.points ?? "?"}`);
+        if (!isEnrolled() && phase > 1) lines.push("Без записи");
       }
-      if (!isEnrolled() && phase > 1) lines.push("Без записи");
       if (isLiveBattleOpen()) lines.push("Пауза: идёт бой");
       if (state.busy) lines.push("Сейчас: команда");
+      lines.push(...formatDayResults());
       return lines.join("\n");
     }
 
@@ -949,6 +1068,7 @@
     function scan(source) {
       if (!isUserReady()) return;
       syncFights();
+      noteTournamentResult();
       noteDraft();
       noteBattleClosed();
       if (state.autoEnabled) {
