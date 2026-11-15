@@ -209,7 +209,7 @@ if (!app.OfferChain) {
                                         && !app.UserUtil.isOVM_STANDALONE()
                                         && !app.OVMSDK.isRuRegion()) {
 
-                                        OVMSDK.getLocalizedPrice('ru.over.keepers.' + offer.t)
+                                        app.OVMSDK.getLocalizedPrice(offer.t)
                                             .then(data => {
                                                 el_a_text.innerText = data;
                                             })

@@ -393,7 +393,7 @@ app.Popups2 = (function() {
         var LAYOUT = app.LAYOUT;
         var dark = Utils.createDIV({class: 'dark'});
         dark.style.opacity = cfg.darkOpacity;
-        var heightArg = LAYOUT.scale < 1 ? 0 : 6;
+        var heightArg = app.Menu.getDarkGap();
         if (LAYOUT.VK || LAYOUT.OK_750 || LAYOUT.EXERU || LAYOUT.FS || LAYOUT.MMR) {
             dark.style.height = LAYOUT.getClientWHS0(heightArg, 1) + 5 + 'px';
         } else {

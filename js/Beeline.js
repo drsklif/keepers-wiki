@@ -249,7 +249,7 @@ if (!app.Beeline) {
             const zIndex = app.Popups.getNextZIndex();
 
             const dark = app.Utils.createDIV({class: 'dark', style: 'top: 0px; opacity: 0.9; z-index: ' + zIndex});
-            dark.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) + 'px';
+            dark.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) + 'px';
 
             const frame = app.Utils.createEL('iframe');
             frame.src = url;

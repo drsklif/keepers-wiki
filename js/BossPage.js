@@ -481,9 +481,9 @@ app.BossPage = (function() {
                             if (group === undefined) group = myGroup;
 
                             if (group === myGroup) {
-                                el_group_text.innerHTML = 'Ты находишься в группе игроков {0} уровней.<br/>Награды за рейтинг:'.format(app.UserUtil.getBossGroupDesc(group));
+                                el_group_text.innerHTML = 'Ты находишься в группе игроков {0} уровней.<br/>Награды за рейтинг:'.format(app.UserUtil.getLevelGroupName(group));
                             } else {
-                                el_group_text.innerHTML = 'Награды группы игроков {0} уровней:'.format(app.UserUtil.getBossGroupDesc(group));
+                                el_group_text.innerHTML = 'Награды группы игроков {0} уровней:'.format(app.UserUtil.getLevelGroupName(group));
                             }
                         }
 

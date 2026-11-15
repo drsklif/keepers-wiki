@@ -2,6 +2,18 @@ if (!app.OVMSDK) {
 
     let region = 'ru';
 
+    // Google-сборка: обёртка отвечает этим кодом, когда Google Play не отдал товар
+    const PRODUCT_NOT_FOUND = 2000;
+    // таймер идёт с постановки в очередь: мост шлёт запросы в обёртку по одному
+    const PRICE_TIMEOUT_MS = 5000;
+    const GOOGLE_PAY_UNAVAILABLE = 'Google Play в России не принимает оплату. Установите игру из RuStore — аккаунт и прогресс сохранятся.';
+    let googlePayUnavailable = false;
+    let googlePayUnavailableShown = false;
+
+    function showGooglePayUnavailable() {
+        app.Utils.showInfo(GOOGLE_PAY_UNAVAILABLE, {type: 1, animation: 0, duration: 6});
+    }
+
     app.OVMSDK = {
 
         init() {
@@ -16,12 +28,34 @@ if (!app.OVMSDK) {
             if (!app.UserUtil.isAdsDisabled()) this.initAds();
         },
 
-        getLocalizedPrice(offer, cb) {
+        getLocalizedPrice(offer) {
             const sku = this.getInAppId(offer);
-            return OVMSDK.getLocalizedPrice(sku);
+            const price = OVMSDK.getLocalizedPrice(sku);
+            if (!app.UserUtil.isOVMType('google')) return price;
+
+            // покупку закрывает только отказ Google; таймаут бывает и при исправном Google
+            price.then(() => {
+                googlePayUnavailable = false;
+            }, e => {
+                if (e && e.code === PRODUCT_NOT_FOUND) googlePayUnavailable = true;
+            });
+
+            // обёртка может не ответить вовсе, тогда без таймаута кнопка навсегда остаётся с «...»
+            const timeout = new Promise((resolve, reject) => setTimeout(() => reject('price timeout: ' + sku), PRICE_TIMEOUT_MS));
+            return Promise.race([price, timeout]).catch(e => {
+                if (!googlePayUnavailableShown) {
+                    googlePayUnavailableShown = true;
+                    showGooglePayUnavailable();
+                }
+                throw e;
+            });
         },
 
         purchase(offer) {
+            if (googlePayUnavailable) {
+                showGooglePayUnavailable();
+                return Promise.resolve();
+            }
             const sku = this.getInAppId(offer);
             return OVMSDK.purchase(sku, app.Model.user.id);
         },

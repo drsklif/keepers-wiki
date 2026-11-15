@@ -196,7 +196,7 @@
                 // без аргументов в отчёт уходил только стек самого перехватчика,
                 // одинаковый для любой ошибки, и понять по нему было нечего
                 let msg = Array.prototype.slice.call(arguments).map(function (a) {
-                    if (a instanceof Error) return a.message;
+                    if (a instanceof Error) return a.message + '\n' + a.stack;
                     if (a && typeof a === 'object') {
                         try { return JSON.stringify(a); } catch (e) { return String(a); }
                     }
@@ -207,14 +207,14 @@
                 // а в нём access_token площадки — ему не место в наших логах.
                 // Шаблон бьёт по "/?", поэтому "?v=" у файлов остаётся: по нему
                 // мы отличаем версии клиента
-                let stack = String(new Error().stack).replace(/\/\?[^\s)]*/g, '/?…');
+                let stack = String(new Error().stack);
 
                 // Обрезка обязательна: до неё отчёт весил больше двух килобайт,
                 // при обрыве такие копились в очереди отправки и вытесняли
                 // команды игрока, а на polling уезжали одной пачкой
                 app.Network.command({
                     cmd: 'Error',
-                    error: (msg + '\n' + stack).slice(0, 1000)
+                    error: (msg + '\n' + stack).replace(/\/\?[^\s)]*/g, '/?…').slice(0, 1000)
                 });
             } catch (e) {
             }
@@ -275,22 +275,21 @@
     function _showAuthError() {
         progress.done = 1;
 
-        const spinner = document.getElementById('loading_spinner');
-        if (spinner) {
-            spinner.style.display = 'none';
+        const loading0 = document.getElementById('loading0');
+        if (loading0) {
+            loading0.parentNode.removeChild(loading0);
         }
 
-        const bar = document.querySelector('#loading0 .loading');
-        if (bar) {
-            bar.style.display = 'none';
-        }
-
-        const advice = document.getElementById('loading_advice');
-        if (advice) {
-            advice.style.whiteSpace = 'pre-line';
-            advice.innerText = _isBeelineHost()
-                ? 'Ссылка для входа устарела.\n\nВернитесь на сайт билайна\nи нажмите «Играть».'
-                : 'Не удалось войти в игру.\n\nПопробуйте обновить страницу.';
+        // веб-канал билайна: токен из ссылки уже протух, перезагрузка не поможет, нужен новый с сайта.
+        // у приложения (?auth=) свой токен, ему хватит перезагрузки
+        if (_isBeelineHost() && !_getRequestParameters().auth) {
+            app.World.showConnectionLost({
+                code: -1,
+                message: 'Ссылка для входа устарела',
+                button: {text: 'На сайт билайна', href: 'https://beeline.ru/games/games-page/'}
+            });
+        } else {
+            app.World.showConnectionLost({code: -1, message: 'Не удалось войти в игру'});
         }
     }
 
@@ -475,7 +474,8 @@
         window.onerror = function (msg, url, line, col, error) {
             if (typeof app !== 'undefined') {
                 if (app && app.Utils) {
-                    let show = true;
+                    // браузер скрыл ошибку чужого скрипта: сброс кеша игроку не поможет
+                    let show = !String(msg).startsWith('Script error');
                     if (app.Model && window._isMeVK) {
                     } else {
                         if (location.hostname === 'od.keepers.mobi' || location.hostname === 'vk.keepers.mobi') {
@@ -499,7 +499,7 @@
                 info = msg + ' Script: ' + url + ' Line: ' + line + ' Column: ' + col + ' StackTrace: ' + error;
             }
 
-            info += ' ' + navigator.userAgent;
+            info += ' ' + location.host + ' ' + navigator.userAgent;
 
             if (typeof app !== 'undefined') {
                 if (app && app.Network && app.Network.isConnected()) {
@@ -582,6 +582,8 @@
 
 <script type="text/javascript">
     progress.set(0, 7, 'Загрузка ресурсов.');
+    // шрифт табличек главной: качается, пока идёт полоса
+    const kuraleWait = Promise.race([document.fonts.load('1em Kurale').catch(() => {}), new Promise(resolve => setTimeout(resolve, 3000))]);
     let v = '123.' + Math.random();
     loadJS0(getVK_ODR_Path('/js/app.js?v=' + v), function () {
         progress.progress++;
@@ -599,12 +601,13 @@
                     app.CSS.addInlineStyles('.brd_block .close {top: -18px !important; right:5px !important; transform: scale(1.25);} .popup .close {top: -18px !important; transform: scale(1.25);}');
                 }
 
-                progress.set(0, app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR ? 3 : 2, 'Загрузка ресурсов..');
+                progress.set(0, app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR ? 5 : 4, 'Загрузка ресурсов..');
 
                 onLoad = function () {
                     progress.progress++;
                     if (progress.isComplete()) {
 
+                        let authLoadStarted = 0;
                         const internalLoad = () => {
                             app.EventDispatcher.addEventListener('network connected', function () {
                                 let cmd = prepareAuthCommand();
@@ -630,6 +633,10 @@
 
                                         _onBeelineAuth(data);
 
+                                        // повторный Auth после обрыва во время загрузки не запускает загрузку заново: Game.init дважды задвоил бы обработчики событий
+                                        if (authLoadStarted) return;
+                                        authLoadStarted = 1;
+
                                         progress.progress++;
 
                                         app.loadJS('TimeUtil', function () {
@@ -644,36 +651,36 @@
                                                 function () {
                                                     progress.progress++;
                                                 }, function () {
-                                                    //
-                                                    // load base images
-                                                    //
-                                                    var list = [];
                                                     var tutorial = data.user.tutorial;
-                                                    var entry = tutorial.l[tutorial.l.length - 1];
-                                                    if (entry.c !== 1) {
-                                                        if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
-                                                            list.push(getVK_ODR_Path('/images/main_bg_tutor_750_750.jpg'));
-                                                        } else {
-                                                            list.push(getVK_ODR_Path('/images/main_bg_tutor_640_1200.jpg'));
-                                                        }
-                                                        list.push(getVK_ODR_Path('/images/character_f.png'));
-                                                        list.push(getVK_ODR_Path('/images/girl.png'));
-                                                        list.push(getVK_ODR_Path('/images/character_an.png'));
-                                                        list.push(getVK_ODR_Path('/images/avatars/male/5.jpg'));
-                                                    }
-                                                    if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
-                                                        list.push(getVK_ODR_Path('/images/main_bg_750_750.jpg'));
+                                                    var firstScreenImages;
+                                                    // как UserUtil.isOldDesign: Model.user ещё не задан
+                                                    if (data.user.od === 1 && tutorial.mainCompleted === 1) {
+                                                        // на этих площадках style_sq.css (vk_750) берёт фон из main_bg_750_750
+                                                        firstScreenImages = [app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR ? 'main_bg_750_750.jpg' : 'main_bg_640_1200.jpg'];
                                                     } else {
-                                                        list.push(getVK_ODR_Path('/images/main_bg_640_1200.jpg'));
+                                                        // фон — по классу body b{LAYOUT.w}_1200 (.main_bg.main_v2 в style.css)
+                                                        firstScreenImages = [app.LAYOUT.w === 750 ? 'main_v2/background-reference-v3-sunny.jpg' : 'main_v2/background-vertical-v5.jpg',
+                                                            'main_v2/portal-v1.png', 'main_v2/chest-v1.png', 'main_v2/shop-v1.png', 'main_v2/arena-v1.png',
+                                                            'main_v2/castle-grass-v3.png', 'main_v2/dungeon-v1.png', 'main_v2/ship-large-v1.png', 'main_v2/ship-small-v1.png',
+                                                            'main_v2/plate-stone-v1.svg', 'main_v2/plate-stone-ready-v2.svg'];
                                                     }
-                                                    list.push(getVK_ODR_Path('/images/sprite_decor.png'));
-                                                    list.push(getVK_ODR_Path('/images/sprite_main.png'));
-                                                    progress.set(0, list.length, 'Загрузка ресурсов....');
+                                                    if (tutorial.mainCompleted !== 1) firstScreenImages.push('tutorial/bella.png');
+                                                    firstScreenImages.push('sprite_decor.png', 'sprite_main.png');
+                                                    // адреса как в min-css, иначе CSS скачает картинки повторно
+                                                    var firstScreenImageURLs = firstScreenImages.map(file => app.IMAGES.getURLUsedByCSS('/images/' + file));
+                                                    // из lazyList: иначе Tutorial.load качает их по одному после показа главной
+                                                    var lazyTutorialModules = tutorial.completed === 1 ? [] : ['TutorialOverlay', 'TutorialScenario', 'TutorialPath'];
+                                                    progress.set(0, firstScreenImageURLs.length + lazyTutorialModules.length, 'Загрузка ресурсов....');
 
-                                                    app.loadIMGs(list,
-                                                        function () {
+                                                    var imagesLoaded = new Promise(resolve => app.loadIMGs(firstScreenImageURLs, () => progress.progress++, resolve));
+                                                    var tutorialModulesLoaded = Promise.all(lazyTutorialModules.map(alias => new Promise(resolve => {
+                                                        const onDone = () => {
                                                             progress.progress++;
-                                                        }, function () {
+                                                            resolve();
+                                                        };
+                                                        app.loadJS1(alias, onDone, onDone);
+                                                    })));
+                                                    Promise.all([imagesLoaded, tutorialModulesLoaded, kuraleWait]).then(function () {
                                                             var loading0 = app.Utils.el('loading0');
                                                             if (loading0) loading0.parentNode.removeChild(loading0);
                                                             progress.done = 1;
@@ -729,7 +736,8 @@
                                                                     } else {
                                                                         if (data.result) {
                                                                             var result = JSON.parse(data.result);
-                                                                            if (app.Utils.isArray(result)) {
+                                                                            // при ошибке Spaces отвечает [{error_msg, error_code}] без content
+                                                                            if (app.Utils.isArray(result) && result[0] && result[0].content) {
                                                                                 var e;
                                                                                 try {
                                                                                     e = app.Utils.createDIV({html: app.Utils.b64DecodeUnicode(result[0].content)});
@@ -740,7 +748,7 @@
                                                                                     });
                                                                                     throw e;
                                                                                 }
-                                                                                e = e.firstChild;
+                                                                                e = e.firstElementChild;
                                                                                 header.parentNode.replaceChild(e, header);
                                                                                 header = e;
                                                                                 header.style.zIndex = 1000000;
@@ -753,7 +761,7 @@
                                                                                 app.Utils._header_offset = h === 0 ? 0 : 24;
 
                                                                                 e = app.Utils.createDIV({html: app.Utils.b64DecodeUnicode(result[1].content)});
-                                                                                e = e.firstChild;
+                                                                                e = e.firstElementChild;
                                                                                 footer.parentNode.replaceChild(e, footer);
                                                                                 footer = e;
                                                                                 footer.style.position = 'relative';
@@ -856,7 +864,7 @@
 
                                                                         if (typeof ym !== 'undefined') {
                                                                             let goal;
-                                                                            if (app.UserUtil.isTutorialStepCompleted('d_1')) {
+                                                                            if (app.UserUtil.isTutorialStepDone('intro')) {
                                                                                 goal = 'login';
                                                                             } else {
                                                                                 goal = 'registration';
@@ -929,6 +937,8 @@
                             });
                             app.EventDispatcher.addEventListener('network disconnected', function (data) {
                                 console.log('EventDispatcher :: network disconnected');
+                                // приходит до колбэка Auth, который покажет причину через _showAuthError
+                                if (data && data.code === 'AUTH_ERROR') return;
                                 app.GAME_STATE = 2;
                                 if (app.Utils.el('connection_error')) return;
                                 if (!data || typeof data.showConnectionLost === 'undefined' || data.showConnectionLost) {
@@ -1001,6 +1011,8 @@
                 };
                 app.loadCSS('style', onLoad);
                 app.loadCSS('common', onLoad);
+                app.loadCSS('artifacts', onLoad);
+                app.loadCSS('echo', onLoad);
                 if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
                     app.loadCSS('vk_750', onLoad);
                 }

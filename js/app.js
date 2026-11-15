@@ -74,6 +74,127 @@ var app = (function () {
         return platform;
     }
 
+    const WRAP_HOST = 'https://wrap.keepers.mobi';
+    const KEEPERS_HOST = 'https://keepers.mobi';
+
+    // Картинки соцсетей (VK, OK, Яндекс) идут с wrap. У части игроков, в основном с мобильного интернета,
+    // wrap недоступен — тогда картинки берутся с keepers: там те же файлы, CSS с ними собирает Prepare.prepareCSS
+    const socialImages = (function () {
+        // после недоступного wrap следующие сутки картинки сразу с keepers
+        const WRAP_UNAVAILABLE_KEY = 'wrapUnavailableAt';
+        const WRAP_UNAVAILABLE_TTL_MS = 24 * 60 * 60 * 1000;
+        // 614 байт, одна из картинок экрана боя
+        const PROBE_IMAGE_PATH = '/images/damage.png';
+        const PROBE_TIMEOUT_MS = 3000;
+        // проверка идёт и после ошибки картинки с wrap, а ошибкой бывает и 404
+        const PROBE_INTERVAL_MS = 60 * 1000;
+
+        let fromKeepers = wrapUnavailableRecently();
+        let probeStartedAt = 0;
+
+        function host() {
+            return fromKeepers ? KEEPERS_HOST : WRAP_HOST;
+        }
+
+        function wrapUnavailableRecently() {
+            try {
+                return Date.now() - Number(localStorage.getItem(WRAP_UNAVAILABLE_KEY) || 0) < WRAP_UNAVAILABLE_TTL_MS;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function rememberWrapUnavailable(unavailable) {
+            try {
+                if (unavailable) {
+                    localStorage.setItem(WRAP_UNAVAILABLE_KEY, String(Date.now()));
+                } else {
+                    localStorage.removeItem(WRAP_UNAVAILABLE_KEY);
+                }
+            } catch (e) {
+            }
+        }
+
+        function measureImageLoad(origin) {
+            return new Promise(resolve => {
+                const t0 = Date.now();
+                const img = new Image();
+                const finish = (outcome) => {
+                    clearTimeout(timeoutID);
+                    img.onload = img.onerror = null;
+                    resolve({outcome: outcome, ms: Date.now() - t0});
+                };
+                const timeoutID = setTimeout(() => finish('timeout'), PROBE_TIMEOUT_MS);
+                img.onload = () => finish('ok');
+                img.onerror = () => finish('error');
+                // случайный параметр — мимо кэша, проверяется сеть
+                img.src = origin + PROBE_IMAGE_PATH + '?probe=' + Math.random();
+            });
+        }
+
+        // wrap не ответил, а keepers ответил — переключаемся; в лог идёт любой неответ wrap
+        function probe(trigger) {
+            if (Date.now() - probeStartedAt < PROBE_INTERVAL_MS) return;
+            probeStartedAt = Date.now();
+
+            Promise.all([measureImageLoad(WRAP_HOST), measureImageLoad(KEEPERS_HOST)]).then(([wrapLoad, keepersLoad]) => {
+                if (wrapLoad.outcome === 'ok') {
+                    rememberWrapUnavailable(false);
+                    return;
+                }
+                if (keepersLoad.outcome === 'ok') switchToKeepers();
+                const connection = navigator.connection;
+                const net = connection ? (connection.type || '?') + '/' + (connection.effectiveType || '?') : '?';
+                _sendErrorAfterAuth('wrap probe: wrap=' + wrapLoad.outcome + ' ' + wrapLoad.ms + 'ms, keepers=' + keepersLoad.outcome + ' ' + keepersLoad.ms + 'ms, net=' + net
+                    + ', trigger=' + trigger + ', images=' + (fromKeepers ? 'keepers' : 'wrap'));
+            });
+        }
+
+        function keepersCSSURL(url) {
+            return url.replace(/\/wrap\.(\w+\.min\.css)/, '/$1');
+        }
+
+        // Фоны, уже поставленные из JS (inline style), остаются с wrap до перерисовки экрана
+        function switchToKeepers() {
+            if (fromKeepers) return;
+            fromKeepers = true;
+            rememberWrapUnavailable(true);
+
+            images.list.forEach(cfg => cfg.file = cfg.file.replace(WRAP_HOST, KEEPERS_HOST));
+            css.list.forEach(cfg => cfg.file = keepersCSSURL(cfg.file));
+
+            Array.prototype.forEach.call(document.querySelectorAll('link[rel="stylesheet"]'), oldLink => {
+                const href = keepersCSSURL(oldLink.href);
+                if (href === oldLink.href) return;
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.type = 'text/css';
+                // старый CSS убираем после загрузки нового, иначе экран на миг остаётся без стилей
+                link.onload = () => oldLink.parentNode && oldLink.parentNode.removeChild(oldLink);
+                link.href = href;
+                oldLink.parentNode.insertBefore(link, oldLink.nextSibling);
+            });
+
+            Array.prototype.forEach.call(document.images, img => {
+                if (img.src.startsWith(WRAP_HOST)) img.src = img.src.replace(WRAP_HOST, KEEPERS_HOST);
+            });
+        }
+
+        return {
+            host: host,
+            fromKeepers: () => fromKeepers,
+            // проверка при старте и после каждой ошибки картинки с wrap — только там, где картинки идут через этот модуль
+            start: function () {
+                if (!_getResourceURL(PROBE_IMAGE_PATH).startsWith(host())) return;
+                probe('start');
+                document.addEventListener('error', event => {
+                    const el = event.target;
+                    if (!fromKeepers && el.tagName === 'IMG' && el.src.startsWith(WRAP_HOST)) probe('img');
+                }, true);
+            }
+        };
+    })();
+
     function _getResourceURL(path) {
         if (typeof VK_ODR !== 'undefined' && VK_ODR) {
             return getVK_ODR_Path(path);
@@ -89,13 +210,13 @@ var app = (function () {
                 RESOURCE_URL = '';
                 break;
             case 'YANDEX':
-                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://ya.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? socialImages.host() : 'https://ya.keepers.mobi';
                 break;
             case 'VK':
-                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://vk.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? socialImages.host() : 'https://vk.keepers.mobi';
                 break;
             case 'OK':
-                RESOURCE_URL = path.includes('/images/') ? 'https://wrap.keepers.mobi' : 'https://od.keepers.mobi';
+                RESOURCE_URL = path.includes('/images/') ? socialImages.host() : 'https://od.keepers.mobi';
                 break;
             case 'SPACES':
                 RESOURCE_URL = 'https://spaces.keepers.mobi';
@@ -153,35 +274,52 @@ var app = (function () {
         return RESOURCE_URL + '/' + path;
     }
 
+    // Error принимается только после Auth; ждём игрока до 2 минут
+    function _sendErrorAfterAuth(error, tries = 0) {
+        if (app.Model && app.Model.user && app.Network && app.Network.isConnected()) {
+            app.Network.command({cmd: 'Error', error: error});
+        } else if (tries < 60) {
+            setTimeout(() => _sendErrorAfterAuth(error, tries + 1), 2000);
+        }
+    }
+
+    // при загрузке app.js: index.html не вызывает app.init
+    socialImages.start();
+
     var _LAYOUT_BASE;
 
+    // wrap.*.min.css — картинки с wrap, *.min.css — с keepers (Prepare.prepareCSS)
+    function _cssPath(name) {
+        return (_getPlatform() === 'SITE' || socialImages.fromKeepers() ? '/' : '/wrap.') + name + '.min.css';
+    }
+
     var css = {
-        v: '368',
+        v: '417',
 
         list: [
             {
                 alias: 'style',
-                file: _getResourceURL(_getPlatform() === 'SITE' ? '/style.min.css' : '/wrap.style.min.css'),
+                file: _getResourceURL(_cssPath('style')),
                 v: '1'
             },
             {
                 alias: 'common',
-                file: _getResourceURL(_getPlatform() === 'SITE' ? '/common.min.css' : '/wrap.common.min.css'),
+                file: _getResourceURL(_cssPath('common')),
                 v: '1'
             },
             {
                 alias: 'artifacts',
-                file: _getResourceURL(_getPlatform() === 'SITE' ? '/artifacts.min.css' : '/wrap.artifacts.min.css'),
+                file: _getResourceURL(_cssPath('artifacts')),
                 v: '1'
             },
             {
                 alias: 'echo',
-                file: _getResourceURL(_getPlatform() === 'SITE' ? '/echo.min.css' : '/wrap.echo.min.css'),
+                file: _getResourceURL(_cssPath('echo')),
                 v: '1'
             },
             {
                 alias: 'vk_750',
-                file: _getResourceURL(_getPlatform() === 'SITE' ? '/style_sq.min.css' : '/wrap.style_sq.min.css'),
+                file: _getResourceURL(_cssPath('style_sq')),
                 v: '1'
             }
         ],
@@ -222,101 +360,106 @@ var app = (function () {
         v: '10.0.98' + js_v,
         list: [
             {alias: 'EventDispatcher', file: _getResourceURL('/js/EventDispatcher.js'), v: '3'},
-            {alias: 'Utils', file: _getResourceURL('/js/Utils' + (js_min ? '.min.js' : '.js')), v: '69'},
-            {alias: 'TimeUtil', file: _getResourceURL('/js/TimeUtil.js'), v: '2'},
-            {alias: 'CFGUtil', file: _getResourceURL('/js/CFGUtil' + (js_min ? '.min.js' : '.js')), v: '31'},
-            {alias: 'UserUtil', file: _getResourceURL('/js/UserUtil' + (js_min ? '.min.js' : '.js')), v: '110'},
+            {alias: 'Utils', file: _getResourceURL('/js/Utils' + (js_min ? '.min.js' : '.js')), v: '74'},
+            {alias: 'TimeUtil', file: _getResourceURL('/js/TimeUtil.js'), v: '3'},
+            {alias: 'CFGUtil', file: _getResourceURL('/js/CFGUtil' + (js_min ? '.min.js' : '.js')), v: '34'},
+            {alias: 'UserUtil', file: _getResourceURL('/js/UserUtil' + (js_min ? '.min.js' : '.js')), v: '119'},
             {alias: 'GuildUtil', file: _getResourceURL('/js/GuildUtil' + (js_min ? '.min.js' : '.js')), v: '10'},
             {alias: 'EventUtil', file: _getResourceURL('/js/EventUtil.js'), v: '22'},
-            {alias: 'Model', file: _getResourceURL('/js/Model' + (js_min ? '.min.js' : '.js')), v: '47'},
+            {alias: 'Model', file: _getResourceURL('/js/Model' + (js_min ? '.min.js' : '.js')), v: '51'},
             {alias: 'Mailru', file: _getResourceURL('/js/Mailru.js'), v: '5'},
-            {alias: 'World', file: _getResourceURL('/js/World.js'), v: '10'},
-            {alias: 'Game', file: _getResourceURL('/js/Game' + (js_min ? '.min.js' : '.js')), v: '80'},
+            {alias: 'World', file: _getResourceURL('/js/World.js'), v: '12'},
+            {alias: 'Game', file: _getResourceURL('/js/Game' + (js_min ? '.min.js' : '.js')), v: '84'},
             {alias: 'Dice', file: _getResourceURL('/js/Dice.js'), v: '1'},
-            {alias: 'Menu', file: _getResourceURL('/js/Menu.js'), v: '8'},
-            {alias: 'MainPage', file: _getResourceURL('/js/MainPage' + (js_min ? '.min.js' : '.js')), v: '416'},
-            {alias: 'ProfilePage', file: _getResourceURL('/js/ProfilePage' + (js_min ? '.min.js' : '.js')), v: '20'},
-            {alias: 'CardsPage', file: _getResourceURL('/js/CardsPage' + (js_min ? '.min.js' : '.js')), v: '23'},
-            {alias: 'Cards', file: _getResourceURL('/js/Cards' + (js_min ? '.min.js' : '.js')), v: '74'},
-            {alias: 'Campaign', file: _getResourceURL('/js/Campaign' + (js_min ? '.min.js' : '.js')), v: '14'},
-            {alias: 'ChestsPage', file: _getResourceURL('/js/ChestsPage' + (js_min ? '.min.js' : '.js')), v: '8'},
-            {alias: 'Chests', file: _getResourceURL('/js/Chests' + (js_min ? '.min.js' : '.js')), v: '42'},
-            {alias: 'Chat', file: _getResourceURL('/js/Chat' + (js_min ? '.min.js' : '.js')), v: '89'},
+            {alias: 'Menu', file: _getResourceURL('/js/Menu.js'), v: '17'},
+            {alias: 'MainPage', file: _getResourceURL('/js/MainPage' + (js_min ? '.min.js' : '.js')), v: '439'},
+            {alias: 'ProfilePage', file: _getResourceURL('/js/ProfilePage' + (js_min ? '.min.js' : '.js')), v: '21'},
+            {alias: 'CardsPage', file: _getResourceURL('/js/CardsPage' + (js_min ? '.min.js' : '.js')), v: '24'},
+            {alias: 'Cards', file: _getResourceURL('/js/Cards' + (js_min ? '.min.js' : '.js')), v: '77'},
+            {alias: 'Campaign', file: _getResourceURL('/js/Campaign' + (js_min ? '.min.js' : '.js')), v: '16'},
+            {alias: 'ChestsPage', file: _getResourceURL('/js/ChestsPage' + (js_min ? '.min.js' : '.js')), v: '9'},
+            {alias: 'Chests', file: _getResourceURL('/js/Chests' + (js_min ? '.min.js' : '.js')), v: '46'},
+            {alias: 'Chat', file: _getResourceURL('/js/Chat' + (js_min ? '.min.js' : '.js')), v: '90'},
             {alias: 'ShopPage', file: _getResourceURL('/js/ShopPage' + (js_min ? '.min.js' : '.js')), v: '24'},
-            {alias: 'ArenaPage', file: _getResourceURL('/js/ArenaPage' + (js_min ? '.min.js' : '.js')), v: '17'},
-            {alias: 'Popups', file: _getResourceURL('/js/Popups' + (js_min ? '.min.js' : '.js')), v: '20'},
-            {alias: 'Popups2', file: _getResourceURL('/js/Popups2' + ('.js')), v: '2'},
-            {alias: 'Forum', file: _getResourceURL('/js/Forum' + (js_min ? '.min.js' : '.js')), v: '28'},
-            {alias: 'QuestsPage', file: _getResourceURL('/js/QuestsPage' + (js_min ? '.min.js' : '.js')), v: '39'},
-            {alias: 'RatingsPage', file: _getResourceURL('/js/RatingsPage' + (js_min ? '.min.js' : '.js')), v: '21'},
-            {alias: 'GuildPage', file: _getResourceURL('/js/GuildPage' + (js_min ? '.min.js' : '.js')), v: '58'},
+            {alias: 'ArenaPage', file: _getResourceURL('/js/ArenaPage' + (js_min ? '.min.js' : '.js')), v: '18'},
+            {alias: 'Popups', file: _getResourceURL('/js/Popups' + (js_min ? '.min.js' : '.js')), v: '25'},
+            {alias: 'Popups2', file: _getResourceURL('/js/Popups2' + ('.js')), v: '3'},
+            {alias: 'Forum', file: _getResourceURL('/js/Forum' + (js_min ? '.min.js' : '.js')), v: '30'},
+            {alias: 'QuestsPage', file: _getResourceURL('/js/QuestsPage' + (js_min ? '.min.js' : '.js')), v: '41'},
+            {alias: 'RatingsPage', file: _getResourceURL('/js/RatingsPage' + (js_min ? '.min.js' : '.js')), v: '22'},
+            {alias: 'GuildPage', file: _getResourceURL('/js/GuildPage' + (js_min ? '.min.js' : '.js')), v: '61'},
             {alias: 'GuildRaids', file: _getResourceURL('/js/GuildRaids' + (js_min ? '.min.js' : '.js')), v: '8'},
             {alias: 'DungeonPage', file: _getResourceURL('/js/DungeonPage' + (js_min ? '.min.js' : '.js')), v: '6'},
-            {alias: 'BattleReplay', file: _getResourceURL('/js/BattleReplay' + (js_min ? '.min.js' : '.js')), v: '10'},
-            {alias: 'BattlePage', file: _getResourceURL('/js/BattlePage' + (js_min ? '.min.js' : '.js')), v: '20'},
+            {alias: 'BattleReplay', file: _getResourceURL('/js/BattleReplay' + (js_min ? '.min.js' : '.js')), v: '11'},
+            {alias: 'BattlePage', file: _getResourceURL('/js/BattlePage' + (js_min ? '.min.js' : '.js')), v: '33'},
             {alias: 'LeaguePage', file: _getResourceURL('/js/LeaguePage' + (js_min ? '.min.js' : '.js')), v: '34'},
-            {alias: 'LeagueSeason', file: _getResourceURL('/js/LeagueSeason.js'), v: '8'},
-            {alias: 'SoundManager', file: _getResourceURL('/js/SoundManager.js'), v: '7'},
-            {alias: 'Tutorial', file: _getResourceURL('/js/Tutorial' + (js_min ? '.min.js' : '.js')), v: '5'},
+            {alias: 'LeagueSeason', file: _getResourceURL('/js/LeagueSeason.js'), v: '9'},
+            {alias: 'SoundManager', file: _getResourceURL('/js/SoundManager.js'), v: '8'},
+            {alias: 'Tutorial', file: _getResourceURL('/js/Tutorial.js'), v: '10'},
             {
                 alias: 'AchievementsPage',
                 file: _getResourceURL('/js/AchievementsPage' + (js_min ? '.min.js' : '.js')),
                 v: '7'
             },
             {alias: 'DailyRewards', file: _getResourceURL('/js/DailyRewards.js'), v: '8'},
-            {alias: 'Notifications', file: _getResourceURL('/js/Notifications.js'), v: '40'},
+            {alias: 'Notifications', file: _getResourceURL('/js/Notifications.js'), v: '41'},
             {alias: 'Purchase', file: _getResourceURL('/js/Purchase' + (js_min ? '.min.js' : '.js')), v: '46'},
-            {alias: 'Shop', file: _getResourceURL('/js/Shop.js'), v: '6'},
+            {alias: 'Shop', file: _getResourceURL('/js/Shop.js'), v: '7'},
 
             {alias: 'BBCodes', file: _getResourceURL('/js/BBCodes.js'), v: '5'},
-            {alias: 'Network', file: _getResourceURL('/js/Network_4' + (false && js_min ? '.min.js' : '.js')), v: '45'}
+            {alias: 'Network', file: _getResourceURL('/js/Network_4' + (false && js_min ? '.min.js' : '.js')), v: '46'}
         ],
         lazyList: [
-            {alias: 'Avatars', file: _getResourceURL('/js/Avatars.js'), v: '77'},
+            {alias: 'TutorialOverlay', file: _getResourceURL('/js/TutorialOverlay.js'), v: '3'},
+            {alias: 'TutorialScenario', file: _getResourceURL('/js/TutorialScenario.js'), v: '15'},
+            {alias: 'TutorialPath', file: _getResourceURL('/js/TutorialPath.js'), v: '1'},
+            {alias: 'Avatars', file: _getResourceURL('/js/Avatars.js'), v: '80'},
             {alias: 'SpherePage', file: _getResourceURL('/js/SpherePage.js'), v: '5'},
-            {alias: 'BlitzPage', file: _getResourceURL('/js/BlitzPage' + (js_min ? '.min.js' : '.js')), v: '3'},
-            {alias: 'GuildBlitzPage', file: _getResourceURL('/js/GuildBlitzPage.js'), v: '33'},
+            {alias: 'BlitzPage', file: _getResourceURL('/js/BlitzPage' + (js_min ? '.min.js' : '.js')), v: '4'},
+            {alias: 'GuildBlitzPage', file: _getResourceURL('/js/GuildBlitzPage.js'), v: '34'},
             {alias: 'GuildBlitzUtil', file: _getResourceURL('/js/GuildBlitzUtil.js'), v: '6'},
-            {alias: 'SalePage', file: _getResourceURL('/js/SalePage' + (js_min ? '.min.js' : '.js')), v: '62'},
-            {alias: 'Sale1', file: _getResourceURL('/js/Sale1' + (js_min ? '.min.js' : '.js')), v: '118'},
+            {alias: 'SalePage', file: _getResourceURL('/js/SalePage' + (js_min ? '.min.js' : '.js')), v: '63'},
+            {alias: 'Sale1', file: _getResourceURL('/js/Sale1' + (js_min ? '.min.js' : '.js')), v: '119'},
             {alias: 'SearchPage', file: _getResourceURL('/js/SearchPage.js'), v: '4'},
-            {alias: 'SettingsPage', file: _getResourceURL('/js/SettingsPage' + (js_min ? '.min.js' : '.js')), v: '55'},
-            {alias: 'BossPage', file: _getResourceURL('/js/BossPage.js'), v: '20'},
+            {alias: 'SettingsPage', file: _getResourceURL('/js/SettingsPage' + (js_min ? '.min.js' : '.js')), v: '60'},
+            {alias: 'BossPage', file: _getResourceURL('/js/BossPage.js'), v: '21'},
             {alias: 'Agreement', file: _getResourceURL('/js/Agreement' + (js_min ? '.min.js' : '.js')), v: '19'},
             {alias: 'Exeru', file: _getResourceURL('/js/Exeru.js'), v: '2'},
             {alias: 'Fotostrana', file: _getResourceURL('/js/Fotostrana.js'), v: '1'},
-            {alias: 'Premium', file: _getResourceURL('/js/Premium' + (js_min ? '.min.js' : '.js')), v: '52'},
-            {alias: 'Halloween', file: _getResourceURL('/js/Halloween.js'), v: '42'},
-            {alias: 'PVPT', file: _getResourceURL('/js/PVPT' + (js_min ? '.min.js' : '.js')), v: '21'},
-            {alias: 'MayEvent', file: _getResourceURL('/js/MayEvent.js'), v: '66'},
+            {alias: 'Premium', file: _getResourceURL('/js/Premium' + (js_min ? '.min.js' : '.js')), v: '54'},
+            {alias: 'Halloween', file: _getResourceURL('/js/Halloween.js'), v: '43'},
+            {alias: 'PVPT', file: _getResourceURL('/js/PVPT' + (js_min ? '.min.js' : '.js')), v: '22'},
+            {alias: 'MayEvent', file: _getResourceURL('/js/MayEvent.js'), v: '67'},
             {alias: 'OKUtil', file: _getResourceURL('/js/OKUtil.js'), v: '14' + '.' + Math.random()},
-            {alias: 'VKUtil', file: _getResourceURL('/js/VKUtil.js'), v: '48'},
-            {alias: 'YandexUtil', file: _getResourceURL('/js/YandexUtil.js'), v: '57.' + Math.random()},
+            {alias: 'VKUtil', file: _getResourceURL('/js/VKUtil.js'), v: '50'},
+            {alias: 'YandexUtil', file: _getResourceURL('/js/YandexUtil.js'), v: '58.' + Math.random()},
             {alias: 'RBKUtil', file: _getResourceURL('/js/RBKUtil.js'), v: '2'},
             {alias: 'GuildWar', file: _getResourceURL('/js/GuildWar' + (js_min ? '.min.js' : '.js')), v: '42'},
             {alias: 'GuildBuildings', file: _getResourceURL('/js/GuildBuildings' + '.js'), v: '6'},
-            {alias: 'Virus', file: _getResourceURL('/js/VirusPage.js'), v: '18'},
+            {alias: 'Virus', file: _getResourceURL('/js/VirusPage.js'), v: '30'},
+            {alias: 'GolemRewards', file: _getResourceURL('/js/GolemRewards.js'), v: '10'},
+            {alias: 'GolemArt', file: _getResourceURL('/js/GolemArt.js'), v: '1'},
             {alias: 'StonesPage', file: _getResourceURL('/js/StonesPage.js'), v: '15'},
             {alias: 'MMR', file: _getResourceURL('/js/MMR.js'), v: '15'},
             {alias: 'GuildEvent', file: _getResourceURL('/js/GuildEvent' + (js_min ? '.min.js' : '.js')), v: '8'},
             {alias: 'GoogleReview', file: _getResourceURL('/js/GoogleReview' + (js_min ? '.min.js' : '.js')), v: '8'},
             {alias: 'Debug', file: _getResourceURL('/js/Debug.js'), v: '3'},
             {alias: 'XsollaPS3', file: _getResourceURL('/js/XsollaPS3.js'), v: '4'},
-            {alias: 'Labyrinth', file: _getResourceURL('/js/Labyrinth' + (js_min ? '.min.js' : '.js')), v: '24'},
-            {alias: 'BattlePath', file: _getResourceURL('/js/BattlePath.js'), v: '32'},
+            {alias: 'Labyrinth', file: _getResourceURL('/js/Labyrinth' + (js_min ? '.min.js' : '.js')), v: '28'},
+            {alias: 'BattlePath', file: _getResourceURL('/js/BattlePath.js'), v: '33'},
             {alias: 'ChampT', file: _getResourceURL('/js/ChampT' + (js_min ? '.min.js' : '.js')), v: '11'},
             {alias: 'Expedition', file: _getResourceURL('/js/Expedition.js'), v: '9'},
-            {alias: 'OVMSDK', file: _getResourceURL('/js/OVMSDK.js'), v: '1.0' + Math.random()},
-            {alias: 'MainShopPage', file: _getResourceURL('/js/MainShopPage' + (js_min ? '.min.js' : '.js')), v: '103'},
-            {alias: 'MailPage', file: _getResourceURL('/js/MailPage' + (js_min ? '.min.js' : '.js')), v: '33'},
+            {alias: 'OVMSDK', file: _getResourceURL('/js/OVMSDK.js'), v: '1.1' + Math.random()},
+            {alias: 'MainShopPage', file: _getResourceURL('/js/MainShopPage' + (js_min ? '.min.js' : '.js')), v: '105'},
+            {alias: 'MailPage', file: _getResourceURL('/js/MailPage' + (js_min ? '.min.js' : '.js')), v: '48'},
             {alias: 'TrainingPage', file: _getResourceURL('/js/TrainingPage.js'), v: '5'},
             {alias: 'Presents', file: _getResourceURL('/js/Presents.js'), v: '5'},
             {alias: 'AGUtil', file: _getResourceURL('/js/AGUtil.js'), v: '3.' + Math.random()},
-            {alias: 'YandexPromoCode', file: _getResourceURL('/js/YandexPromoCode.js'), v: '4'},
+            {alias: 'YandexPromoCode', file: _getResourceURL('/js/YandexPromoCode.js'), v: '5'},
             {alias: 'MiniGame', file: _getResourceURL('/js/MiniGame.js'), v: '4'},
             {alias: 'Beeline', file: _getResourceURL('/js/Beeline.js'), v: '1.' + Math.random()},
             {alias: 'Ifree2', file: _getResourceURL('/js/Ifree2.js'), v: '1.' + Math.random()},
-            {alias: 'OfferChain', file: _getResourceURL('/js/OfferChain.js'), v: '1.' + Math.random()},
+            {alias: 'OfferChain', file: _getResourceURL('/js/OfferChain.js'), v: '2.' + Math.random()},
             {alias: 'Playdeck', file: _getResourceURL('/js/Playdeck.js'), v: '1.' + Math.random()},
             {alias: 'GamePush', file: _getResourceURL('/js/GamePush.js'), v: '1.' + Math.random()},
             {alias: 'Yookassa', file: _getResourceURL('/js/Yookassa.js'), v: '1.' + Math.random()},
@@ -351,24 +494,46 @@ var app = (function () {
             {file: _getResourceURL('/images/avatars/male/3.jpg'), v: '1'},
             {file: _getResourceURL('/images/avatars/male/4.jpg'), v: '1'},
             {file: _getResourceURL('/images/brd_block_friday.jpg'), v: '2'},
+            {file: _getResourceURL('/images/brd_block_golem_runic.jpg'), v: '1'},
+            {file: _getResourceURL('/images/brd_block_golem_stone.jpg'), v: '1'},
             {file: _getResourceURL('/images/cards/vampire.jpg'), v: '2'},
             {file: _getResourceURL('/images/cards/vampire2.jpg'), v: '2'},
             {file: _getResourceURL('/images/chgift.png'), v: '1'},
+            {file: _getResourceURL('/images/festival-forge-platform-150.png'), v: '1'},
+            {file: _getResourceURL('/images/festival-forge-platform-300.png'), v: '1'},
+            {file: _getResourceURL('/images/fire-currency-68.png'), v: '1'},
+            {file: _getResourceURL('/images/fire-festival-popup-bg.jpg'), v: '1'},
+            {file: _getResourceURL('/images/fire-gift-brazier.png'), v: '1'},
+            {file: _getResourceURL('/images/fire-gift-chest.png'), v: '1'},
+            {file: _getResourceURL('/images/fire-shop-promo.jpg'), v: '1'},
             {file: _getResourceURL('/images/guild_bg_640_1200.jpg'), v: '4'},
             {file: _getResourceURL('/images/guild_bg_750_750.jpg'), v: '4'},
             {file: _getResourceURL('/images/labyrinth/sprite_drop.png'), v: '1'},
             {file: _getResourceURL('/images/main_bg_640_1200.jpg'), v: '2'},
-            {file: _getResourceURL('/images/main_bg_640_1200_redesign.jpg'), v: '4'},
-            {file: _getResourceURL('/images/footer_rail.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/background-reference-v3-sunny.jpg'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/background-vertical-v5.jpg'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/arena-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/castle-grass-v3.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/chest-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/dungeon-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/plate-stone-ready-v2.svg'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/plate-stone-v1.svg'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/portal-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/ship-large-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/ship-small-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/main_v2/shop-v1.png'), v: '1'},
+            {file: _getResourceURL('/images/talisman_menu/talisman-thread-v10.png'), v: '1'},
+            {file: _getResourceURL('/images/talisman_menu/talismans-atlas.png'), v: '1'},
+            {file: _getResourceURL('/images/talisman_menu/utility-stone-gray.svg'), v: '1'},
             {file: _getResourceURL('/images/avatars/event/hb_26_w_f.jpg'), v: '1'},
             {file: _getResourceURL('/images/avatars/event/hb_26_w_m.jpg'), v: '1'},
-            {file: _getResourceURL('/images/footer_rail.webp'), v: '1'},
-            {file: _getResourceURL('/images/footer_active.png'), v: '1'},
-            {file: _getResourceURL('/images/footer_active.webp'), v: '1'},
-            {file: _getResourceURL('/images/footer_icons.png'), v: '1'},
-            {file: _getResourceURL('/images/footer_icons.webp'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-runic.png'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-runic-main.png'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-runic-dead.png'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-stone.png'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-stone-main.png'), v: '1'},
+            {file: _getResourceURL('/images/golems/golem-stone-dead.png'), v: '1'},
             {file: _getResourceURL('/images/main_bg_750_750.jpg'), v: '2'},
-            {file: _getResourceURL('/images/main_bg_750_750_redesign.jpg'), v: '4'},
             {file: _getResourceURL('/images/league-season-rewards-sprite.png'), v: '1'},
             {file: _getResourceURL('/images/present_leaf.png'), v: '1'},
             {file: _getResourceURL('/images/puzzle/halloween.png'), v: '2'},
@@ -379,17 +544,16 @@ var app = (function () {
             {file: _getResourceURL('/images/sprite_cosmos.png'), v: '4'},
             {file: _getResourceURL('/images/sprite_decor.png'), v: '16'},
             {file: _getResourceURL('/images/sprite_gems.png'), v: '2'},
-            {file: _getResourceURL('/images/sprite_gems2.png'), v: '9'},
+            {file: _getResourceURL('/images/sprite_gems2.png'), v: '10'},
             {file: _getResourceURL('/images/sprite_magic.png'), v: '4'},
             {file: _getResourceURL('/images/sprite_main.png'), v: '39'},
             {file: _getResourceURL('/images/sprite_ny.png'), v: '2'},
             {file: _getResourceURL('/images/sprite_relic.png'), v: '2'},
-            {file: _getResourceURL('/images/title_plate_redesign_active.png'), v: '3'},
-            {file: _getResourceURL('/images/title_plate_redesign_disabled.png'), v: '3'},
-            {file: _getResourceURL('/images/title_plate_redesign_hover.png'), v: '3'},
-            {file: _getResourceURL('/images/title_plate_redesign_normal.png'), v: '3'}
+            {file: _getResourceURL('/images/tutorial/bella.png'), v: '1'}
         ],
         getPath: function (path) {
+            // готовый адрес из getURLUsedByCSS; относительный путь с ?v= (BBCodesUtil) по-прежнему получает хост
+            if (path.startsWith('http') && path.indexOf('?v=') !== -1) return path;
             if (path.startsWith('https') || path.startsWith('http')) {
             } else {
                 path = _getResourceURL(path);
@@ -398,7 +562,14 @@ var app = (function () {
             if (cfg) {
                 return cfg.file + '?v=' + this.v + '.' + cfg.v;
             }
-            return _getResourceURL(path) + '?v=' + this.v;
+            // хост уже есть: повторный _getResourceURL склеивал чужой хост с wrap («/https://vk.keepers.mobi/images/...», 404)
+            return path + '?v=' + this.v;
+        },
+        // хост как у подключённого CSS (_cssPath), версия — из images.list (в CSS — из ServerUtil.IMAGES_LIST, должны совпадать)
+        getURLUsedByCSS: function (path) {
+            const cfg = this.getCFG(_getResourceURL(path));
+            const host = _getPlatform() === 'SITE' ? KEEPERS_HOST : socialImages.host();
+            return host + path + '?v=' + this.v + (cfg ? '.' + cfg.v : '');
         },
         getCFG: function (alias) {
             return this.list.find(_cfg => _cfg.file === alias);
@@ -608,19 +779,24 @@ var app = (function () {
             let path = js.getPath(alias);
             this.loadJS0(path, onLoad);
         },
-        loadJS1: function (alias, onLoad) {
+        loadJS1: function (alias, onLoad, onError) {
             if (app[alias]) {
                 onLoad();
             } else {
                 let path = js.getPath(alias);
-                this.loadJS0(path, onLoad);
+                this.loadJS0(path, onLoad, onError);
             }
         },
-        loadJS0: function (path, onLoad) {
+        loadJS0: function (path, onLoad, onError) {
             let el = document.createElement('script');
             el.type = 'text/javascript';
             el.onload = function () {
                 onLoad();
+            };
+            // без этого при обрыве сети вызывающий ждёт onLoad вечно
+            el.onerror = function () {
+                el.parentNode.removeChild(el);
+                if (onError) onError();
             };
             el.src = path;
             document.getElementsByTagName('head')[0].appendChild(el);
@@ -726,12 +902,13 @@ var app = (function () {
                 if (app.Popups) {
                     let p = app.Popups.getLast();
                     if (p && p.els.dark) {
-                        p.els.dark.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) + 'px';
+                        p.els.dark.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) + 'px';
                     }
                 }
 
-                document.body.className = 'b{0}_1200'.format(app.LAYOUT.w);
-                app.Utils.el('main0').style.width = app.LAYOUT.w + 'px';
+                // на body ещё scene-covered, chest-ready
+                document.body.className = document.body.className.replace(/\bb\d+_1200\b/, 'b{0}_1200'.format(app.LAYOUT.w));
+                app.World.fitMainToScreen();
                 app.Utils.el('main').style.width = app.LAYOUT.w + 'px';
 
                 if (app.LAYOUT.scale < 1) {
@@ -749,7 +926,8 @@ var app = (function () {
                 if (app.GuildPage) {
                     let content = app.GuildPage.getCFG();
                     if (content) {
-                        content.els.main.style.height = app.LAYOUT.convert0(app.LAYOUT.h) - app.Menu.getFooterHeight() + 'px';
+                        // как в GuildPage.create: в новом оформлении сцена уходит под полупрозрачное меню
+                        content.els.main.style.height = app.LAYOUT.convert0(app.LAYOUT.h) - (app.UserUtil.isOldDesign() ? app.Menu.getFooterHeight() : 0) + 'px';
                         content.scroll.top = Math.max(-210, (app.LAYOUT.convert0(app.LAYOUT.h) - app.LAYOUT.maxH) / 2);
                         content.scroll.topMax = app.LAYOUT.maxH - app.LAYOUT.convert0(app.LAYOUT.h);
                         content.scroll.el.style.top = content.scroll.top + "px";

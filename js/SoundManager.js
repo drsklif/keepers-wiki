@@ -394,7 +394,8 @@ app.SoundManager = (function () {
         },
 
         resumeAllAudio: function() {
-            this.settingsChanged();
+            // обёртка может вызвать это, пока игра ещё грузится
+            if (app.Model && app.Model.user) this.settingsChanged();
         }
     }
 })();

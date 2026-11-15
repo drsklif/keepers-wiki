@@ -123,8 +123,6 @@ app.Network = (function() {
         } else if (window._YANDEX) {
             // 19.08.2026: websocket проходит и через 443, переезд не проверен на игроках
             return 'https://ya.keepers.mobi:444';
-        } else if (host.startsWith('vk.')) {
-            return 'https://' + window.location.hostname + ':444';
         } else {
             // 443, а не отдельный порт: нестандартные порты закрыты в части сетей.
             // nginx отдаёт /socket.io/ на апстрим 9086

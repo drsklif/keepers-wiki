@@ -55,9 +55,9 @@ if (!app.YandexPromoCode) {
             cfg.els.main = app.Utils.createDIV({class: 'dark'});
             cfg.els.main.style.opacity = 1;
             if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
-                cfg.els.main.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) + 5 + 'px';
+                cfg.els.main.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) + 5 + 'px';
             } else {
-                cfg.els.main.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) - app.Utils.withOffsets(0, 1) + 'px';
+                cfg.els.main.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) - app.Utils.withOffsets(0, 1) + 'px';
             }
 
             if (onClick) {

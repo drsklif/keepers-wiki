@@ -10,94 +10,99 @@
 |---|---|---|
 | `js/app.js` | `10.0.98` | Главный загрузчик: определяет платформу/ресурсный хост, список модулей (alias → путь/версия), динамическая загрузка JS/CSS, инициализация приложения. |
 | `js/EventDispatcher.js` | `10.0.98.3` | Простой event bus: `on/emit/removeEventListener` для событий между модулями. |
-| `js/Utils.min.js` | `10.0.98.69` | Утилиты: DOM-хелперы (`createDIV/createA/...`), форматирование денег/строк, классы качества, попапы наград/ошибок и т.п. |
-| `js/TimeUtil.js` | `10.0.98.2` | Время “от сервера”: `init(server)`, `update()`, `now()` + форматирование длительности/часов, проверки дней/дат. |
-| `js/CFGUtil.min.js` | `10.0.98.31` | Справочники/хелперы поверх `app.Model.cfg`: карты, предметы, квесты, достижения, подземелья, мощь карт. |
-| `js/UserUtil.min.js` | `10.0.98.110` | Утилиты игрока: доступ к прогрессу кампании, расчёты, обработка наград/сундуков, карты пользователя (уровни/звёзды/комбо). |
+| `js/Utils.min.js` | `10.0.98.74` | Утилиты: DOM-хелперы (`createDIV/createA/...`), форматирование денег/строк, классы качества, попапы наград/ошибок и т.п. |
+| `js/TimeUtil.js` | `10.0.98.3` | Время “от сервера”: `init(server)`, `update()`, `now()` + форматирование длительности/часов, проверки дней/дат. |
+| `js/CFGUtil.min.js` | `10.0.98.34` | Справочники/хелперы поверх `app.Model.cfg`: карты, предметы, квесты, достижения, подземелья, мощь карт. |
+| `js/UserUtil.min.js` | `10.0.98.119` | Утилиты игрока: доступ к прогрессу кампании, расчёты, обработка наград/сундуков, карты пользователя (уровни/звёзды/комбо). |
 | `js/GuildUtil.min.js` | `10.0.98.10` | Утилиты гильдии: бонусы зданий, расчёты, работа с данными гильдии. |
 | `js/EventUtil.js` | `10.0.98.22` | Утилиты ивентов/сезонных активностей (по названию). |
-| `js/Model.min.js` | `10.0.98.47` | Клиентская модель состояния (`app.Model`): `user`, `cfg`, обработка обновлений, тик `update()`. |
+| `js/Model.min.js` | `10.0.98.51` | Клиентская модель состояния (`app.Model`): `user`, `cfg`, обработка обновлений, тик `update()`. |
 | `js/Mailru.js` | `10.0.98.5` | Интеграция/обвязка под партнёра Mail.ru (по названию). |
-| `js/World.js` | `10.0.98.10` | Главный UI-контейнер и цикл обновления: `createMain()`, `loop()` (тик `TimeUtil/Model/Game`), обработка “connection lost”. |
-| `js/Game.min.js` | `10.0.98.80` | Основной “движок” игры на клиенте: обработка состояний/переходов, `update()`, координация страниц/боёв. |
+| `js/World.js` | `10.0.98.12` | Главный UI-контейнер и цикл обновления: `createMain()`, `loop()` (тик `TimeUtil/Model/Game`), обработка “connection lost”. |
+| `js/Game.min.js` | `10.0.98.84` | Основной “движок” игры на клиенте: обработка состояний/переходов, `update()`, координация страниц/боёв. |
 | `js/Dice.js` | `10.0.98.1` | Логика/визуал кубиков (по названию; в бою используется). |
-| `js/Menu.js` | `10.0.98.8` | UI-меню/кнопки/навигация (по названию и месту в загрузке). |
-| `js/MainPage.min.js` | `10.0.98.416` | Главная страница/хаб UI (меню, переходы к разделам). |
-| `js/ProfilePage.min.js` | `10.0.98.20` | Профиль игрока (информация/прогресс/настройки профиля). |
-| `js/CardsPage.min.js` | `10.0.98.23` | Экран/страница карт (список/фильтры/действия с картами). |
-| `js/Cards.min.js` | `10.0.98.74` | Логика/рендер карточек (слоты, качество, элемент, уровень/звёзды, блокировки), опирается на `CFGUtil` и `UserUtil`. |
-| `js/Campaign.min.js` | `10.0.98.14` | Экран кампании: карты глав (фон/координаты миссий/сундуков), открытие миссий, показ возможных наград, сундуки за звёзды. Сами данные миссий берёт из `app.Model.cfg.campaign`. |
-| `js/ChestsPage.min.js` | `10.0.98.8` | Экран сундуков. |
-| `js/Chests.min.js` | `10.0.98.42` | Логика сундуков/дропов (открытие/анимации/награды). |
-| `js/Chat.min.js` | `10.0.98.89` | Чат: каналы/сообщения/взаимодействия. |
+| `js/Menu.js` | `10.0.98.17` | UI-меню/кнопки/навигация (по названию и месту в загрузке). |
+| `js/MainPage.min.js` | `10.0.98.439` | Главная страница/хаб UI (меню, переходы к разделам). |
+| `js/ProfilePage.min.js` | `10.0.98.21` | Профиль игрока (информация/прогресс/настройки профиля). |
+| `js/CardsPage.min.js` | `10.0.98.24` | Экран/страница карт (список/фильтры/действия с картами). |
+| `js/Cards.min.js` | `10.0.98.77` | Логика/рендер карточек (слоты, качество, элемент, уровень/звёзды, блокировки), опирается на `CFGUtil` и `UserUtil`. |
+| `js/Campaign.min.js` | `10.0.98.16` | Экран кампании: карты глав (фон/координаты миссий/сундуков), открытие миссий, показ возможных наград, сундуки за звёзды. Сами данные миссий берёт из `app.Model.cfg.campaign`. |
+| `js/ChestsPage.min.js` | `10.0.98.9` | Экран сундуков. |
+| `js/Chests.min.js` | `10.0.98.46` | Логика сундуков/дропов (открытие/анимации/награды). |
+| `js/Chat.min.js` | `10.0.98.90` | Чат: каналы/сообщения/взаимодействия. |
 | `js/ShopPage.min.js` | `10.0.98.24` | Экран магазина (см. выше). |
-| `js/ArenaPage.min.js` | `10.0.98.17` | Арена: подбор/список врагов, награды, бои на арене. |
-| `js/Popups.min.js` | `10.0.98.20` | Менеджер попапов/модалок (создание/центрирование/оверлей). |
-| `js/Popups2.js` | `10.0.98.2` | Дополнительный менеджер/набор попапов (рядом с `Popups`). |
-| `js/Forum.min.js` | `10.0.98.28` | Форум внутри игры (по названию). |
-| `js/QuestsPage.min.js` | `10.0.98.39` | Задания/квесты (в т.ч. дневные), прогресс и награды. |
-| `js/RatingsPage.min.js` | `10.0.98.21` | Рейтинги/таблицы лидеров (по названию). |
-| `js/GuildPage.min.js` | `10.0.98.58` | Гильдия: состав/чаты/вклад/настройки (по названию). |
+| `js/ArenaPage.min.js` | `10.0.98.18` | Арена: подбор/список врагов, награды, бои на арене. |
+| `js/Popups.min.js` | `10.0.98.25` | Менеджер попапов/модалок (создание/центрирование/оверлей). |
+| `js/Popups2.js` | `10.0.98.3` | Дополнительный менеджер/набор попапов (рядом с `Popups`). |
+| `js/Forum.min.js` | `10.0.98.30` | Форум внутри игры (по названию). |
+| `js/QuestsPage.min.js` | `10.0.98.41` | Задания/квесты (в т.ч. дневные), прогресс и награды. |
+| `js/RatingsPage.min.js` | `10.0.98.22` | Рейтинги/таблицы лидеров (по названию). |
+| `js/GuildPage.min.js` | `10.0.98.61` | Гильдия: состав/чаты/вклад/настройки (по названию). |
 | `js/GuildRaids.min.js` | `10.0.98.8` | Гильдейские рейды (подгружается lazily из `Campaign` вкладкой “Рейды”). |
 | `js/DungeonPage.min.js` | `10.0.98.6` | Подземелья (по названию): расписание/вход/награды. |
-| `js/BattleReplay.min.js` | `10.0.98.10` | Просмотр/проигрывание реплеев боёв. |
-| `js/BattlePage.min.js` | `10.0.98.20` | Экран боя (кампания/арена/и др.): выбор карт, кубики, ход боя, результаты. |
+| `js/BattleReplay.min.js` | `10.0.98.11` | Просмотр/проигрывание реплеев боёв. |
+| `js/BattlePage.min.js` | `10.0.98.33` | Экран боя (кампания/арена/и др.): выбор карт, кубики, ход боя, результаты. |
 | `js/LeaguePage.min.js` | `10.0.98.34` | Лига Доблести: рейтинги/битвы/награды (по названию). |
-| `js/LeagueSeason.js` | `10.0.98.8` | Модуль `LeagueSeason` (eager-загрузка из app.js). |
-| `js/SoundManager.js` | `10.0.98.7` | Звук: WebAudio, список алиасов звуков, загрузка/декод, play/fade. |
-| `js/Tutorial.min.js` | `10.0.98.5` | Туториал: шаги обучения, отметки выполнения (`TutorialCompleteStep`). |
+| `js/LeagueSeason.js` | `10.0.98.9` | Модуль `LeagueSeason` (eager-загрузка из app.js). |
+| `js/SoundManager.js` | `10.0.98.8` | Звук: WebAudio, список алиасов звуков, загрузка/декод, play/fade. |
+| `js/Tutorial.js` | `10.0.98.10` | Туториал: шаги обучения, отметки выполнения (`TutorialCompleteStep`). |
 | `js/AchievementsPage.min.js` | `10.0.98.7` | Достижения: список, уровни/стадии, награды. |
 | `js/DailyRewards.js` | `10.0.98.8` | Ежедневная награда: рендер календаря, получение (`cmd: 'DailyRewardGet'`), показ reward-попапа. |
-| `js/Notifications.js` | `10.0.98.40` | Уведомления (локальные/внутриигровые; по названию и месту в загрузке). |
+| `js/Notifications.js` | `10.0.98.41` | Уведомления (локальные/внутриигровые; по названию и месту в загрузке). |
 | `js/Purchase.min.js` | `10.0.98.46` | Покупки (платежи/валидация/офферы; по названию). |
-| `js/Shop.js` | `10.0.98.6` | UI магазина: слоты товаров (item/card/ресурсы), таймер обновления, покупка (`ShopBuyItem`) и обновление (`ShopReset`). |
+| `js/Shop.js` | `10.0.98.7` | UI магазина: слоты товаров (item/card/ресурсы), таймер обновления, покупка (`ShopBuyItem`) и обновление (`ShopReset`). |
 | `js/BBCodes.js` | `10.0.98.5` | BBCode/разметка для чата/форума (по названию). |
-| `js/Network_4.js` | `10.0.98.45` | Сетевой слой (socket.io/websocket): отправка `command`, приём `events`, авторизация, реконнект, доставка данных в `Model`. |
-| `js/Avatars.js` | `10.0.98.77` | Модуль `Avatars` (lazy-загрузка из app.js). |
+| `js/Network_4.js` | `10.0.98.46` | Сетевой слой (socket.io/websocket): отправка `command`, приём `events`, авторизация, реконнект, доставка данных в `Model`. |
+| `js/TutorialOverlay.js` | `10.0.98.3` | Модуль `TutorialOverlay` (lazy-загрузка из app.js). |
+| `js/TutorialScenario.js` | `10.0.98.15` | Модуль `TutorialScenario` (lazy-загрузка из app.js). |
+| `js/TutorialPath.js` | `10.0.98.1` | Модуль `TutorialPath` (lazy-загрузка из app.js). |
+| `js/Avatars.js` | `10.0.98.80` | Модуль `Avatars` (lazy-загрузка из app.js). |
 | `js/SpherePage.js` | `10.0.98.5` | Модуль `SpherePage` (lazy-загрузка из app.js). |
-| `js/BlitzPage.min.js` | `10.0.98.3` | Модуль `BlitzPage` (lazy-загрузка из app.js). |
-| `js/GuildBlitzPage.js` | `10.0.98.33` | Страница/ивент “GuildBlitz”: задачи/энергия/сундуки, команды на сервер (`GuildBlitz*`). |
+| `js/BlitzPage.min.js` | `10.0.98.4` | Модуль `BlitzPage` (lazy-загрузка из app.js). |
+| `js/GuildBlitzPage.js` | `10.0.98.34` | Страница/ивент “GuildBlitz”: задачи/энергия/сундуки, команды на сервер (`GuildBlitz*`). |
 | `js/GuildBlitzUtil.js` | `10.0.98.6` | Утилиты/формулы/помощники для “GuildBlitz” (по названию). |
-| `js/SalePage.min.js` | `10.0.98.62` | Модуль `SalePage` (lazy-загрузка из app.js). |
-| `js/Sale1.min.js` | `10.0.98.118` | Модуль `Sale1` (lazy-загрузка из app.js). |
+| `js/SalePage.min.js` | `10.0.98.63` | Модуль `SalePage` (lazy-загрузка из app.js). |
+| `js/Sale1.min.js` | `10.0.98.119` | Модуль `Sale1` (lazy-загрузка из app.js). |
 | `js/SearchPage.js` | `10.0.98.4` | Модуль `SearchPage` (lazy-загрузка из app.js). |
-| `js/SettingsPage.min.js` | `10.0.98.55` | Модуль `SettingsPage` (lazy-загрузка из app.js). |
-| `js/BossPage.js` | `10.0.98.20` | Модуль `BossPage` (lazy-загрузка из app.js). |
+| `js/SettingsPage.min.js` | `10.0.98.60` | Модуль `SettingsPage` (lazy-загрузка из app.js). |
+| `js/BossPage.js` | `10.0.98.21` | Модуль `BossPage` (lazy-загрузка из app.js). |
 | `js/Agreement.min.js` | `10.0.98.19` | Модуль `Agreement` (lazy-загрузка из app.js). |
 | `js/Exeru.js` | `10.0.98.2` | Модуль `Exeru` (lazy-загрузка из app.js). |
 | `js/Fotostrana.js` | `10.0.98.1` | Модуль `Fotostrana` (lazy-загрузка из app.js). |
-| `js/Premium.min.js` | `10.0.98.52` | Модуль `Premium` (lazy-загрузка из app.js). |
-| `js/Halloween.js` | `10.0.98.42` | Модуль `Halloween` (lazy-загрузка из app.js). |
-| `js/PVPT.min.js` | `10.0.98.21` | PVP/тренировки/доп. боевой режим (по названию и наличию команды `PVPTBattle` в HAR). |
-| `js/MayEvent.js` | `10.0.98.66` | Модуль `MayEvent` (lazy-загрузка из app.js). |
+| `js/Premium.min.js` | `10.0.98.54` | Модуль `Premium` (lazy-загрузка из app.js). |
+| `js/Halloween.js` | `10.0.98.43` | Модуль `Halloween` (lazy-загрузка из app.js). |
+| `js/PVPT.min.js` | `10.0.98.22` | PVP/тренировки/доп. боевой режим (по названию и наличию команды `PVPTBattle` в HAR). |
+| `js/MayEvent.js` | `10.0.98.67` | Модуль `MayEvent` (lazy-загрузка из app.js). |
 | `js/OKUtil.js` | `10.0.98.14` | Модуль `OKUtil` (lazy-загрузка из app.js). |
-| `js/VKUtil.js` | `10.0.98.48` | Модуль `VKUtil` (lazy-загрузка из app.js). |
-| `js/YandexUtil.js` | `10.0.98.57` | Модуль `YandexUtil` (lazy-загрузка из app.js). |
+| `js/VKUtil.js` | `10.0.98.50` | Модуль `VKUtil` (lazy-загрузка из app.js). |
+| `js/YandexUtil.js` | `10.0.98.58` | Модуль `YandexUtil` (lazy-загрузка из app.js). |
 | `js/RBKUtil.js` | `10.0.98.2` | Модуль `RBKUtil` (lazy-загрузка из app.js). |
 | `js/GuildWar.min.js` | `10.0.98.42` | Модуль `GuildWar` (lazy-загрузка из app.js). |
 | `js/GuildBuildings.js` | `10.0.98.6` | Модуль `GuildBuildings` (lazy-загрузка из app.js). |
-| `js/VirusPage.js` | `10.0.98.18` | Модуль `Virus` (lazy-загрузка из app.js). |
+| `js/VirusPage.js` | `10.0.98.30` | Модуль `Virus` (lazy-загрузка из app.js). |
+| `js/GolemRewards.js` | `10.0.98.10` | Модуль `GolemRewards` (lazy-загрузка из app.js). |
+| `js/GolemArt.js` | `10.0.98.1` | Модуль `GolemArt` (lazy-загрузка из app.js). |
 | `js/StonesPage.js` | `10.0.98.15` | Модуль `StonesPage` (lazy-загрузка из app.js). |
 | `js/MMR.js` | `10.0.98.15` | Модуль `MMR` (lazy-загрузка из app.js). |
 | `js/GuildEvent.min.js` | `10.0.98.8` | Модуль `GuildEvent` (lazy-загрузка из app.js). |
 | `js/GoogleReview.min.js` | `10.0.98.8` | Модуль `GoogleReview` (lazy-загрузка из app.js). |
 | `js/Debug.js` | `10.0.98.3` | Модуль `Debug` (lazy-загрузка из app.js). |
 | `js/XsollaPS3.js` | `10.0.98.4` | Интеграция оплаты/токенов через Xsolla (`cmd: 'XsollaGetAccessToken'`). |
-| `js/Labyrinth.min.js` | `10.0.98.24` | Модуль `Labyrinth` (lazy-загрузка из app.js). |
-| `js/BattlePath.js` | `10.0.98.32` | Модуль `BattlePath` (lazy-загрузка из app.js). |
+| `js/Labyrinth.min.js` | `10.0.98.28` | Модуль `Labyrinth` (lazy-загрузка из app.js). |
+| `js/BattlePath.js` | `10.0.98.33` | Модуль `BattlePath` (lazy-загрузка из app.js). |
 | `js/ChampT.min.js` | `10.0.98.11` | Модуль `ChampT` (lazy-загрузка из app.js). |
 | `js/Expedition.js` | `10.0.98.9` | Экспедиции (c 20 уровня): UI, требования по мощи, отправка/награды (`ExpeditionStart/Reward/...`). |
-| `js/OVMSDK.js` | `10.0.98.1.0` | Модуль `OVMSDK` (lazy-загрузка из app.js). |
-| `js/MainShopPage.min.js` | `10.0.98.103` | Модуль `MainShopPage` (lazy-загрузка из app.js). |
-| `js/MailPage.min.js` | `10.0.98.33` | Модуль `MailPage` (lazy-загрузка из app.js). |
+| `js/OVMSDK.js` | `10.0.98.1.1` | Модуль `OVMSDK` (lazy-загрузка из app.js). |
+| `js/MainShopPage.min.js` | `10.0.98.105` | Модуль `MainShopPage` (lazy-загрузка из app.js). |
+| `js/MailPage.min.js` | `10.0.98.48` | Модуль `MailPage` (lazy-загрузка из app.js). |
 | `js/TrainingPage.js` | `10.0.98.5` | Модуль `TrainingPage` (lazy-загрузка из app.js). |
 | `js/Presents.js` | `10.0.98.5` | Модуль `Presents` (lazy-загрузка из app.js). |
 | `js/AGUtil.js` | `10.0.98.3` | Модуль `AGUtil` (lazy-загрузка из app.js). |
-| `js/YandexPromoCode.js` | `10.0.98.4` | Модуль `YandexPromoCode` (lazy-загрузка из app.js). |
+| `js/YandexPromoCode.js` | `10.0.98.5` | Модуль `YandexPromoCode` (lazy-загрузка из app.js). |
 | `js/MiniGame.js` | `10.0.98.4` | Модуль `MiniGame` (lazy-загрузка из app.js). |
 | `js/Beeline.js` | `10.0.98.1` | Модуль `Beeline` (lazy-загрузка из app.js). |
 | `js/Ifree2.js` | `10.0.98.1` | Модуль `Ifree2` (lazy-загрузка из app.js). |
-| `js/OfferChain.js` | `10.0.98.1` | Модуль `OfferChain` (lazy-загрузка из app.js). |
+| `js/OfferChain.js` | `10.0.98.2` | Модуль `OfferChain` (lazy-загрузка из app.js). |
 | `js/Playdeck.js` | `10.0.98.1` | Модуль `Playdeck` (lazy-загрузка из app.js). |
 | `js/GamePush.js` | `10.0.98.1` | Модуль `GamePush` (lazy-загрузка из app.js). |
 | `js/Yookassa.js` | `10.0.98.1` | Модуль `Yookassa` (lazy-загрузка из app.js). |

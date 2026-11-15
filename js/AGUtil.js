@@ -47,38 +47,10 @@ if (!app.AGUtil) {
             loop();
         },
 
-        d2dTutorial(step) {
+        // -1 — туториал начат; номер вехи с 1; -2 — основная часть пройдена
+        d2dTutorial(stepNumber) {
             if (window.devtodev === undefined) return;
-            switch (step) {
-                case 'd_1': step = 1; break;
-                case 'd_2': step = 2; break;
-                case 'b_1': step = 3; break;
-                case 'b_2': step = 4; break;
-                case 'b_3': step = 5; break;
-                case 'b_4': step = 6; break;
-                case 'b_5': step = 7; break;
-                case 'd_3': step = 8; break;
-                case 'd_4': step = 9; break;
-                case 'c_o0': step = 10; break;
-                case 'c_o': step = 11; break;
-                case 'c_s_u0': step = 12; break;
-                case 'c_s_u1': step = 13; break;
-                case 'c_s_u': step = 14; break;
-                case 'c_10': step = 15; break;
-                case 'c_11': step = 16; break;
-                case 'c_12': step = 17; break;
-                case 'c_13': step = 18; break;
-                case 'c_14': step = 19; break;
-                case 'c_1': step = 20; break;
-                case 'i_0': step = 21; break;
-                case 'i_1': step = 22; break;
-                case 'q_0': step = 23; break;
-                case 'q_1': step = 24; break;
-                case 'd_5': step = 25; break;
-                case 'start': step = -2; break;
-                case 'end': step = -2; break;
-            }
-            window.devtodev.tutorial(step);
+            window.devtodev.tutorial(stepNumber);
         },
 
         d2dLevelUp() {

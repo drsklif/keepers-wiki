@@ -1,4 +1,8 @@
 app.World = (function() {
+    // размер окна, по которому разложена игра
+    let laidOut = null;
+    let watching = false;
+
     return {
         createMain: function () {
             document.body.className = 'b{0}_1200'.format(app.LAYOUT.w);
@@ -6,7 +10,6 @@ app.World = (function() {
             document.body.style = '';
 
             let el = app.Utils.createDIV({id: 'main0', class: 'main'});
-            el.style.width = app.LAYOUT.w + 'px';
             if (app.LAYOUT.YANDEX) {
                 el.style.zIndex = 0;
                 el.style.position = 'relative';
@@ -22,6 +25,43 @@ app.World = (function() {
             if (app.LAYOUT.scale < 1) {
                 el2.style.transform = 'scale(' + app.LAYOUT.scale + ')';
             }
+            app.World.fitMainToScreen();
+            app.World.watchScreen();
+        },
+
+        // iOS Chrome не всегда шлёт resize, когда меняется высота окна (панели браузера, возврат на вкладку):
+        // игра оставалась по старой высоте, под меню полоса фона до поворота экрана. Сверяем размер и по другим событиям
+        watchScreen: function () {
+            if (watching) return;
+            watching = true;
+            const check = () => app.World.checkScreen();
+            const later = () => setTimeout(check, 300);
+            if (window.visualViewport) window.visualViewport.addEventListener('resize', check);
+            window.addEventListener('pageshow', check);
+            window.addEventListener('orientationchange', later);
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) later();
+            });
+            setTimeout(check, 500);
+            setTimeout(check, 1500);
+        },
+
+        // клавиатура на iOS не меняет innerHeight — onResize только при настоящей смене окна
+        checkScreen: function () {
+            if (laidOut && laidOut.w === window.innerWidth && laidOut.h === window.innerHeight) return;
+            app.onResize();
+        },
+
+        // #main уменьшен через scale, а его layout-ширина и фоны шире экрана — без этого страницу на телефоне тянут вбок
+        fitMainToScreen: function () {
+            laidOut = {w: window.innerWidth, h: window.innerHeight};
+            app.Utils.el('main0').style.width = app.LAYOUT.w * app.LAYOUT.scale + 'px';
+            app.Utils.el('main_brd').style.overflowX = app.LAYOUT.scale < 1 ? 'clip' : '';
+            // высота игры для рамки нового оформления (#main_brd:after), только когда окно выше игры — ВК, вертикальная выше 1200.
+            // Игра во всё окно (телефон) — без неё: рамка до низа окна и подчёркивание за краем, даже если окно потом подросло
+            const brd = app.Utils.el('main_brd');
+            if (app.LAYOUT.screen && app.LAYOUT.h < app.LAYOUT.screen.h) brd.style.setProperty('--game-h', app.LAYOUT.h + 'px');
+            else brd.style.removeProperty('--game-h');
         },
 
         showConnectionLost: function (data) {

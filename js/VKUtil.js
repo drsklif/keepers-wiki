@@ -85,6 +85,12 @@ if (!app.VKUtil) {
         },
 
         vkBridgeEvents() {
+            // supports() в iframe ждёт SetSupportedHandlers, иначе пишет console.error; бридж это сообщение в subscribe не отдаёт
+            if (vkBridge.isWebView()) this.supportsReady = true;
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'SetSupportedHandlers') this.supportsReady = true;
+            });
+
             vkBridge.subscribe((e) => {
                 if (!e.detail) return;
 
@@ -163,7 +169,7 @@ if (!app.VKUtil) {
         },
 
         showAds1(type, data) {
-            if (vkBridge && vkBridge.supports('VKWebAppShowNativeAds')) {
+            if (this.supportsReady && vkBridge && vkBridge.supports('VKWebAppShowNativeAds')) {
                 const cmd = {cmd: 'Ads1Started', type: type};
                 if (data) {
                     cmd.data = data;

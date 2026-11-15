@@ -278,6 +278,8 @@ app.Halloween = (function() {
         for (let i = 0; i < list.length; i += 4) {
             const el = app.Utils.createDIV({style: 'position: relative; height: 90px'});
             TweenMax.delayedCall(0.01 * i, () => {
+                if (p.tmp._closed
+                    || !p.tmp.t1 || p.tmp.t1.v !== v) return;
                 for (let i1 = i; i1 < i + 4 && i1 < list.length; i1++) {
                     const entry = list[i1];
                     const cfg = createPuzzle(entry);

@@ -392,6 +392,9 @@ let Notifications = {
             app.loadJS1('Labyrinth', () => {
                 clicked = 0;
                 app.Labyrinth.create();
+            }, () => {
+                clicked = 0;
+                app.Utils.showInfo('Не удалось загрузить лабиринт, попробуйте ещё раз');
             });
         });
         cfg.update();

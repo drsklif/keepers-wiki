@@ -424,11 +424,10 @@ if (!app.GuildBlitzPage) {
                     el_a_goto_or_get,
                     app.Utils.createA({class: 'mail_top_r mail_top_rw', style: 'margin-left: 5px; margin-right: 150px;'}, null, [
                         app.Utils.createDIV({class: 'mt5 info dbl', text: app.GuildBlitzUtil.getTaskDescription(p.tmp.userEntry)}),
-                        app.Utils.createDIV({class: 'log_dmg quest-progress', style: 'margin-top: 5px; margin-bottom: 5px'}, null, [
-                            app.Utils.createDIV({class: 'log_dmg_prg', style: 'width: {0}%'.format(app.Utils.toPRG(progress, required))}),
-                            app.Utils.createDIV({class: 'log_dmg_patch'}),
-                            app.Utils.createDIV({class: 'log_dmg_text', text: '{0}/{1}'.format(progress, required)}),
-                        ]),
+                        app.Utils.createQuestProgress(
+                            app.Utils.toPRG(progress, required),
+                            '{0}/{1}'.format(progress, required)
+                        ),
                         app.Utils.createDIV({
                             class: 'mtb5',
                             style: 'min-height: 20px',
@@ -557,17 +556,10 @@ if (!app.GuildBlitzPage) {
                                             ? 'Получить или потратить вместе ' + app.Utils.toMoney1(stageRequired) + ' каменной пыли'
                                             : 'Получить или потратить вместе ' + app.Utils.toMoney1(stageRequired) + ' кристаллов'
                             }),
-                            app.Utils.createDIV({class: 'log_dmg quest-progress', style: 'margin-top: 5px; margin-bottom: 5px;'}, null, [
-                                app.Utils.createDIV({
-                                    class: 'log_dmg_prg',
-                                    style: 'width: {0}%'.format(stageRequired > 0 ? app.Utils.toPRG(currentProgress, stageRequired) : 100)
-                                }),
-                                app.Utils.createDIV({class: 'log_dmg_patch'}),
-                                app.Utils.createDIV({
-                                    class: 'log_dmg_text',
-                                    text: '{0}/{1}'.format(app.Utils.toMoney(Math.min(currentProgress, stageRequired)), app.Utils.toMoney1(stageRequired))
-                                })
-                            ]),
+                            app.Utils.createQuestProgress(
+                                stageRequired > 0 ? app.Utils.toPRG(currentProgress, stageRequired) : 100,
+                                '{0}/{1}'.format(app.Utils.toMoney(Math.min(currentProgress, stageRequired)), app.Utils.toMoney1(stageRequired))
+                            ),
                             app.Utils.createSPAN({
                                 class: 'mtb5',
                                 style: 'min-height: 20px;',

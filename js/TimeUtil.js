@@ -35,6 +35,8 @@ app.TimeUtil = (function() {
         },
 
         _parseTime: function(time) {
+            // до целой секунды вверх, иначе 1м 59,5с — «1м 60с»
+            time = Math.ceil(time / S_MS) * S_MS;
             let d = 0;
             let h = 0;
             let m = 0;

@@ -6,6 +6,20 @@ let products;
 // user data
 let _oldPower;
 
+// модерация Яндекса 1.19.3: геймплей — это бой; реклама, покупка и свёрнутая вкладка его приостанавливают
+const _gameplay = {battle: false, pauses: new Set(), active: false};
+const syncGameplay = () => {
+    const active = _gameplay.battle && _gameplay.pauses.size === 0;
+    if (!ysdk || active === _gameplay.active) return;
+    _gameplay.active = active;
+    active ? ysdk.features.GameplayAPI.start() : ysdk.features.GameplayAPI.stop();
+};
+const pauseGameplay = (reason, on) => {
+    on ? _gameplay.pauses.add(reason) : _gameplay.pauses.delete(reason);
+    syncGameplay();
+};
+document.addEventListener('visibilitychange', () => pauseGameplay('hidden', document.hidden));
+
 let _ya_update = () => {
     // YANDEX METRIKA GOALS
     if (typeof ym !== 'undefined') {
@@ -32,9 +46,14 @@ setTimeout(_ya_update, 5000);
 let YandexUtil = {
     initSDK() {
         console.log('Yandex initSDK');
+        // модерация Яндекса: ПКМ не должен открывать меню браузера; в полях ввода оставляем
+        document.addEventListener('contextmenu', e => {
+            if (!e.target.closest('input, textarea, [contenteditable]')) e.preventDefault();
+        });
         let t = document.getElementsByTagName('script')[0];
         let s = document.createElement('script');
-        s.src = 'https://yandex.ru/games/sdk/v2?v=1';
+        // модерация Яндекса 1.19.1: актуальный лоадер; игра — архив на сервере Яндекса, поэтому путь относительный
+        s.src = '/sdk.js';
         s.async = true;
         s.onload = this.onSDKLoad;
         t.parentNode.insertBefore(s, t);
@@ -51,20 +70,23 @@ let YandexUtil = {
                 if (app
                     && app.Model
                     && app.Model.user) {
-                    if (app.Model.user.id === 3661454) {
-                    } else if (true || app.Model.user.id === 3710271) {
+                    if (app.Model.user.id !== 3661454 && !app.UserUtil.isAdsDisabled()) {
                         ysdk.adv.showFullscreenAdv({
                             callbacks: {
                                 onOpen() {
+                                    pauseGameplay('ad', true);
                                     console.log('showFullscreenAdv', 'onOpen');
                                 },
                                 onClose() {
+                                    pauseGameplay('ad', false);
                                     console.log('showFullscreenAdv', 'onClose');
                                 },
                                 onError() {
+                                    pauseGameplay('ad', false);
                                     console.log('showFullscreenAdv', 'onError');
                                 },
                                 onOffline() {
+                                    pauseGameplay('ad', false);
                                     console.log('showFullscreenAdv', 'onOffline');
                                 }
                             }
@@ -75,6 +97,16 @@ let YandexUtil = {
                 }
             };
             t();
+
+            // модерация Яндекса 1.19.2: Game Ready, когда index.html из архива снял экран загрузки
+            const gameReady = () => {
+                if (window.progress && window.progress.done) {
+                    ysdk.features.LoadingAPI.ready();
+                } else {
+                    setTimeout(gameReady, 300);
+                }
+            };
+            gameReady();
 
             app.YandexUtil.getLocalStorage().then(() => {
                 app.EventDispatcher.emit('YSDK initialized');
@@ -234,9 +266,12 @@ let YandexUtil = {
             return;
         }
 
+        pauseGameplay('purchase', true);
         payments.purchase(id).then(purchase => {
+            pauseGameplay('purchase', false);
             this.validatePurchase(purchase);
         }).catch(err => {
+            pauseGameplay('purchase', false);
             console.error('doPurchase3', JSON.stringify(err));
             if (app && app.Utils) {
                 if (err && err.code === 'PAYMENT_USER_CANCELED') {
@@ -371,6 +406,7 @@ let YandexUtil = {
         ysdk.adv.showRewardedVideo({
             callbacks: {
                 onOpen() {
+                    pauseGameplay('ad', true);
                     console.log('Ads: open');
                     ad.started = 1;
                     app.Network.command({cmd: 'AdsStarted'});
@@ -382,6 +418,7 @@ let YandexUtil = {
                     app.Network.command({cmd: 'AdsCompleted'});
                 },
                 onClose() {
+                    pauseGameplay('ad', false);
                     console.log('Ads: close');
                     ad.closed = 1;
                     if (ad.rewarded) {
@@ -392,6 +429,7 @@ let YandexUtil = {
                     startSound();
                 },
                 onError(e) {
+                    pauseGameplay('ad', false);
                     console.error('Ads: error', e);
                     ad.error = 1;
                     if (ad.rewarded) {
@@ -410,6 +448,7 @@ let YandexUtil = {
         ysdk.adv.showRewardedVideo({
             callbacks: {
                 onOpen() {
+                    pauseGameplay('ad', true);
                     console.log('Ads: open');
                     ad.started = 1;
                     const cmd = {cmd: 'Ads1Started', type: type};
@@ -437,6 +476,7 @@ let YandexUtil = {
                     });
                 },
                 onClose() {
+                    pauseGameplay('ad', false);
                     console.log('Ads: close');
                     ad.closed = 1;
                     if (ad.rewarded) {
@@ -447,6 +487,7 @@ let YandexUtil = {
                     startSound();
                 },
                 onError(e) {
+                    pauseGameplay('ad', false);
                     console.error('Ads: error', e);
                     ad.error = 1;
                     if (ad.rewarded) {
@@ -501,7 +542,19 @@ let YandexUtil = {
         });
     },
 
+    gameplay(battle) {
+        _gameplay.battle = battle;
+        _gameplay.pauses.delete('menu');
+        syncGameplay();
+    },
+
+    gameplayMenu(open) {
+        pauseGameplay('menu', open);
+    },
+
     updateLeaderboardScore() {
+        // гость без авторизации: SDK отвечает «Has no auth»
+        if (!player || !player.isAuthorized()) return;
         const power = app.UserUtil.getAllPower();
         if (_oldPower !== power) {
             _oldPower = power;
@@ -529,7 +582,8 @@ setInterval(() => {
 
 setTimeout(() => {
     if (app.Model && app.Model.user) {
-        ysdk.notifications.allow();
+        // гостю SDK отвечает 406
+        if (player && player.isAuthorized()) ysdk.notifications.allow();
         app.Network.command({cmd: 'YandexPushAllowed'});
     }
 }, 3000);

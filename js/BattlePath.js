@@ -778,10 +778,10 @@ if (!app.BattlePath) {
 
                     el_q.appendChild(app.Utils.createSPAN({class: 'mt5 info dbl', html: getQname(quest)}));
 
-                    let el_prg = app.Utils.createDIV({class: 'log_dmg quest-progress', style: 'margin-top: 5px; margin-bottom: 5px;'});
-                    el_prg.appendChild(app.Utils.createDIV({class: 'log_dmg_prg', style: 'width: {0}%'.format(app.Utils.toPRG(quest.p, quest.r))}));
-                    el_prg.appendChild(app.Utils.createDIV({class: 'log_dmg_patch'}));
-                    el_prg.appendChild(app.Utils.createDIV({class: 'log_dmg_text', text: '{0}/{1}'.format(Math.min(quest.p, quest.r), quest.r)}));
+                    let el_prg = app.Utils.createQuestProgress(
+                        app.Utils.toPRG(quest.p, quest.r),
+                        '{0}/{1}'.format(Math.min(quest.p, quest.r), quest.r)
+                    );
                     el_q.appendChild(el_prg);
 
                     let reward = quest.reward;

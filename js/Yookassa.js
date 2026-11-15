@@ -31,9 +31,9 @@ if (!app.Yookassa) {
             dark.style.zIndex = app.Popups.getNextZIndex();
             dark.style.opacity = 1;
             if (app.LAYOUT.VK || app.LAYOUT.OK_750 || app.LAYOUT.EXERU || app.LAYOUT.FS || app.LAYOUT.MMR) {
-                dark.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) + 5 + 'px';
+                dark.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) + 5 + 'px';
             } else {
-                dark.style.height = app.LAYOUT.getClientWHS0(app.LAYOUT.scale < 1 ? 0 : 6, 1) - app.Utils.withOffsets(0, 1) + 'px';
+                dark.style.height = app.LAYOUT.getClientWHS0(app.Menu.getDarkGap(), 1) - app.Utils.withOffsets(0, 1) + 'px';
             }
             dark.style.top = '0px';
             app.Popups.getCFG().els.main.appendChild(dark);

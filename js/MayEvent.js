@@ -87,6 +87,10 @@ app.MayEvent = (function() {
                 p.cfg.display = {gold: 1, gems: 1, magic: 1};
                 p.els.brd_bg.className = 'brd_block_bg_magic';
                 break;
+            case 'fire':
+                p.cfg.display = {gold: 1, gems: 1, fire: 1};
+                p.els.brd_bg.className = 'brd_block_bg_fire';
+                break;
             case 'wind':
                 p.cfg.display = {gold: 1, gems: 1, wind: 1};
                 p.els.brd_bg.className = 'brd_block_bg_wind';
@@ -159,6 +163,8 @@ app.MayEvent = (function() {
                     return 'COSMOS_EVENT';
                 case 'magic':
                     return 'MAGIC_EVENT';
+                case 'fire':
+                    return 'FIRE_EVENT';
                 case 'wind':
                     return 'WIND_EVENT';
                 default:
@@ -230,6 +236,10 @@ app.MayEvent = (function() {
                 p.cfg.display = {gold: 1, gems: 1, magic: 1};
                 p.els.brd_bg.className = 'brd_block_bg_magic';
                 break;
+            case 'fire':
+                p.cfg.display = {gold: 1, gems: 1, fire: 1};
+                p.els.brd_bg.className = 'brd_block_bg_fire';
+                break;
             case 'wind':
                 p.cfg.display = {gold: 1, gems: 1, wind: 1};
                 p.els.brd_bg.className = 'brd_block_bg_wind';
@@ -280,6 +290,8 @@ app.MayEvent = (function() {
                     return 'COSMOS_EVENT';
                 case 'magic':
                     return 'MAGIC_EVENT';
+                case 'fire':
+                    return 'FIRE_EVENT';
                 case 'wind':
                     return 'WIND_EVENT';
                 default:
@@ -440,6 +452,9 @@ app.MayEvent = (function() {
             case 'magic':
                 el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_magic res_icon_inline"></span>частицы магии за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: ...</div></div>';
                 break;
+            case 'fire':
+                el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_fire res_icon_inline"></span>искры за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: ...</div></div>';
+                break;
             case 'wind':
                 el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_wind res_icon_inline"></span>змеев за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: ...</div></div>';
                 break;
@@ -497,6 +512,7 @@ app.MayEvent = (function() {
                     if (qj.reward.april) rects.april = els.reward_april.getBoundingClientRect();
                     if (qj.reward.cosmos) rects.cosmos = els.reward_cosmos.getBoundingClientRect();
                     if (qj.reward.magic) rects.magic = els.reward_magic.getBoundingClientRect();
+                    if (qj.reward.fire) rects.fire = els.reward_fire.getBoundingClientRect();
                     if (qj.reward.gems) rects.gems = els.reward_gems.getBoundingClientRect();
 
                     app.Network.command({cmd: 'MayEventQuestComplete', type: qj.type}, function(data) {
@@ -527,6 +543,7 @@ app.MayEvent = (function() {
                             if (qj.reward.april) animateRewardApril(rects.april, qj.reward.april);
                             if (qj.reward.cosmos) animateRewardCosmos(rects.cosmos, qj.reward.cosmos);
                             if (qj.reward.magic) animateRewardMagic(rects.magic, qj.reward.magic);
+                            if (qj.reward.fire) animateRewardFire(rects.fire, qj.reward.fire);
                             if (qj.reward.gems) animateRewardGems(rects.gems, qj.reward.gems);
 
                             p.cfg.onUpdate();
@@ -586,6 +603,10 @@ app.MayEvent = (function() {
                 el2.appendChild(els.reward_magic = app.Utils.createSPAN({class: 'res_icon res_magic res_icon_inline'}));
                 el2.appendChild(app.Utils.createText(app.Utils.toMoney(qj.reward.magic)));
             }
+            if (qj.reward.fire) {
+                el2.appendChild(els.reward_fire = app.Utils.createSPAN({class: 'res_icon res_fire res_icon_inline'}));
+                el2.appendChild(app.Utils.createText(app.Utils.toMoney(qj.reward.fire)));
+            }
             if (qj.reward.gems) {
                 el2.appendChild(els.reward_gems = app.Utils.createSPAN({class: 'res_icon res_icon_inline res_gem'}));
                 if (app.UserUtil.isMayEventQuestComplete(qj) && app.UserUtil.isPremiumActive()) {
@@ -637,6 +658,9 @@ app.MayEvent = (function() {
                     break;
                 case 'magic':
                     el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_magic res_icon_inline"></span>частицы магии за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: {0}</div></div>'.format(tl);
+                    break;
+                case 'fire':
+                    el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_fire res_icon_inline"></span>искры за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: {0}</div></div>'.format(tl);
                     break;
                 case 'wind':
                     el.innerHTML = '<div class="cntr"><div>Получай <span class="res_icon res_wind res_icon_inline"></span>змеев за выполнение заданий и обменивай их на ценные награды!</div><div class="major big str mt5">До конца события: {0}</div></div>'.format(tl);
@@ -1424,6 +1448,22 @@ app.MayEvent = (function() {
             }}, '+=0.5');
     }
 
+    function animateRewardFire(el, value) {
+        animateReward0('fire', el, {left: 0, top: 6}, value);
+
+        let els_res = app.MainPage.getCFG().resources.fire.els;
+        let obj = {value: app.Model.user.items.fire - value};
+        let tl = new TimelineMax({
+            onComplete: function () {
+                els_res.value.innerHTML = app.Utils.toMoney(app.Model.user.items.fire);
+            }
+        });
+        tl.set(els_res.value, {innerHTML: app.Utils.toMoney(obj.value)});
+        tl.to(obj, 0.3, {value: app.Model.user.items.fire, onUpdate: function() {
+                els_res.value.innerHTML = app.Utils.toMoney(Math.floor(obj.value));
+            }}, '+=0.5');
+    }
+
     function animateRewardFlowers(el, value) {
         animateReward0('flowers', el, {left: 0, top: 6}, value);
 
@@ -1545,6 +1585,7 @@ app.MayEvent = (function() {
             case 'april': return 'Фестиваль юмора';
             case 'cosmos': return 'Фестиваль космоса';
             case 'magic': return 'Фестиваль магии';
+            case 'fire': return 'Фестиваль огня';
             case 'wind': return 'Фестиваль ветра';
             default: return 'Фестиваль цветов';
         }
@@ -1568,6 +1609,7 @@ app.MayEvent = (function() {
             case 'april': return 'колпаков';
             case 'cosmos': return 'звёзд';
             case 'magic': return 'частиц магии';
+            case 'fire': return 'искр';
             case 'wind': return 'змеев';
             default: return 'цветов';
         }

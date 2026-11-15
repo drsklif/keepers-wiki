@@ -70,19 +70,6 @@ app.Avatars = (function() {
         if (list0.length > 0) {
             p.scroll.el.appendChild(app.Utils.createDIV({class: 'big str mb10 major cntr', style: 'width: 420px', text: 'Обычные карты:'}));
 
-            // обновляли аватарку лорда, и нужно показывать новую тоже, если карта куплена
-            {
-                const cId = 3;
-                if (list0.find(x => x.id === cId) != null) {
-                    let cfgCard = app.CFGUtil.getCardByID(cId);
-                    if (getPrice(cfgCard) === 0) {
-                        cfgCard = app.Utils.clone(cfgCard);
-                        cfgCard.img = '/images/cards/vampire2.jpg';
-                        list0.push(cfgCard);
-                    }
-                }
-            }
-
             for (let i = 0; i < list0.length; i += 4) {
                 let el = app.Utils.createDIV({style: 'position: relative; height: 90px'});
                 list0.slice(i, i + 4).forEach(function(cfgCard, i) {
@@ -207,6 +194,7 @@ app.Avatars = (function() {
                 avatars.push({img: '/images/avatars/event/halloween_f_23.jpg', price: 499});
                 avatars.push({img: '/images/avatars/event/halloween_f_24.jpg', price: 499});
                 avatars.push({img: '/images/avatars/event/halloween_f_25.jpg', price: 499});
+                avatars.push({img: '/images/avatars/event/halloween_f_26.jpg', price: 499});
             } else {
                 avatars.push({img: '/images/avatars/event/halloween_m.jpg', price: 499});
                 avatars.push({img: '/images/avatars/event/halloween_m_21.jpg', price: 499});
@@ -214,6 +202,7 @@ app.Avatars = (function() {
                 avatars.push({img: '/images/avatars/event/halloween_m_23.jpg', price: 499});
                 avatars.push({img: '/images/avatars/event/halloween_m_24.jpg', price: 499});
                 avatars.push({img: '/images/avatars/event/halloween_m_25.jpg', price: 499});
+                avatars.push({img: '/images/avatars/event/halloween_m_26.jpg', price: 499});
             }
 
             if (app.Model.user.avatar.o) {
@@ -413,6 +402,13 @@ app.Avatars = (function() {
                     } else {
                         avatars.push({img: '/images/avatars/event/magic_25_m.jpg', price: 499});
                         avatars.push({img: '/images/avatars/event/magic_26_m.jpg', price: 499});
+                    }
+
+                } else if (app.Model.user.may_event.t === 'fire') {
+                    if (app.Model.user.gender === 2) {
+                        avatars.push({img: '/images/avatars/event/fire_26_f.jpg', price: 499});
+                    } else {
+                        avatars.push({img: '/images/avatars/event/fire_26_m.jpg', price: 499});
                     }
 
                 } else if (app.Model.user.may_event.t === '8m') {

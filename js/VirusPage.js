@@ -1,28 +1,52 @@
 app.Virus = (function() {
 
+    // подсказка «Нажимай на Рунника» — первые HINT_HITS ударов каждой битвы (r); переоткрытие окна счёт не сбрасывает
+    const HINT_HITS = 5;
+    const hint = {run: 0, hits: 0};
+    // винительный падеж для подсказки «Нажимай на …»
+    const GOLEM_ACC = {runic: 'Рунника', stone: 'Кременца'};
+
     function create() {
+        app.loadJS1('GolemArt', function() {
+            app.loadJS1('GolemRewards', createPopup);
+        });
+    }
+
+    function createPopup() {
+        const virus = app.Model.user.virus;
+        // бой сняли, пока грузился модуль
+        if (!virus) return;
+        const run = virus.r;
         let p = app.Popups.createPopup1({
-            header: {value: 'Зараза вредная!'},
+            header: {value: app.GolemArt.nameOf(virus.k)},
             display: {energy: 1, gems: 1},
             onUpdate: function() {
-                if (p.tmp.virus !== app.Model.user.virus) {
-                    p.tmp.virus = app.Model.user.virus;
-                    if (p.tmp.updateVirusHealth) {
-                        p.tmp.updateVirusHealth();
-                    }
+                if (p.tmp.virus === app.Model.user.virus) return;
+                p.tmp.virus = app.Model.user.virus;
+                if (p.tmp.personalPanel) p.tmp.personalPanel.update(p.tmp.virus);
+                // запущен новый бой — арт и заголовок попапа от прошлого
+                if (p.tmp.virus && p.tmp.virus.r !== run) {
+                    app.Popups.removePopup(p);
+                    return;
+                }
+                if (p.tmp.updateVirusHealth) {
+                    p.tmp.updateVirusHealth();
+                    // голема добили другие
+                    if (p.tmp.virus && p.tmp.virus.h <= 0) finishBattle(p);
                 }
             },
             onClose: function() {
                 p.tmp._closed = 1;
+                if (p.tmp.golemArt) p.tmp.golemArt.destroy();
                 app.Network.command({cmd: 'VirusOut'});
             }
         });
 
         p.tmp = {};
 
-        p.els.brd_bg.className = 'brd_block_bg_zorus';
+        p.els.brd_bg.className = 'brd_block_bg_golem_' + app.GolemArt.kindOf(virus.k);
 
-        let contentRequiredHeight = 600;
+        let contentRequiredHeight = 600 + (app.GolemRewards.personalProgress(virus) ? app.GolemRewards.PROGRESS_CARD_RESERVE : 0);
         let availableHeight0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
         let availableHeight = Math.min(contentRequiredHeight, availableHeight0);
         let top = Math.max(80, (availableHeight0 - availableHeight) / 2);
@@ -47,6 +71,11 @@ app.Virus = (function() {
                 app.Utils.showInfo('Попробуйте позже');
             } else {
                 p.tmp.virus = app.Model.user.virus;
+                // бой закрыт, пока попап открывался: сервер прислал UNSET
+                if (!p.tmp.virus) {
+                    app.Popups.removePopup(p);
+                    return;
+                }
                 if (p.tmp.virus.h > 0) {
                     state_battle(p);
                 } else {
@@ -57,17 +86,21 @@ app.Virus = (function() {
     }
 
     function state_battle(p) {
-        let tl_energy;
+        fitPopupHeight(p, 600 + (app.GolemRewards.personalProgress(p.tmp.virus) ? app.GolemRewards.PROGRESS_CARD_RESERVE : 0));
+        let tl_energy, el_hint;
 
-        //const img = '/images/character_virus_fa.png';
-        const img = '/images/character_virus.png';
-        let el_boss = app.Utils.createDIV({style: 'background:url(' + app.IMAGES.getPath(img) + '); transform-origin: center; position: absolute; left: 119px; top: 40px;height: 236px; width: 242px'});
-        let scale = 1;
-        el_boss.onclick = function() {
+        const art = p.tmp.golemArt = app.GolemArt.create({kind: p.tmp.virus.k});
+        art.el.style.position = 'absolute';
+        art.el.style.left = '119px';
+        art.el.style.top = '40px';
+        art.el.style.cursor = 'pointer';
+        art.el.onclick = function() {
+            if (p.tmp.defeated) return;
             app.Network.command({cmd: 'VirusClick'}, function(data) {
                 if (p.tmp._closed) return;
                 app.SoundManager.playClick();
                 p.tmp.virus = app.Model.user.virus;
+                if (p.tmp.personalPanel) p.tmp.personalPanel.update(p.tmp.virus);
                 if (data.error) {
                     switch (data.error.code) {
                         case 1:
@@ -78,13 +111,16 @@ app.Virus = (function() {
                             break;
                     }
                     if (p.tmp.virus.h <= 0) {
-                        state_dead(p);
+                        finishBattle(p);
                     }
                 } else {
                     if (p.tmp.virus.h <= 0) {
-                        state_dead(p);
+                        finishBattle(p);
                     } else {
                         if (data.card) {
+                            if (++hint.hits === HINT_HITS && el_hint) {
+                                TweenMax.to(el_hint, 0.5, {opacity: 0, onComplete: () => el_hint.remove()});
+                            }
                             {
                                 let els_res = app.MainPage.getCFG().resources.energy.els;
                                 app.UserUtil.pay({t: 2, v: 1});
@@ -167,6 +203,7 @@ app.Virus = (function() {
                             }
 
                             p.tmp.cards.highlight(data.card);
+                            art.hit(Boolean(isCrit));
                         }
 
                         updateVirusHealth();
@@ -176,22 +213,18 @@ app.Virus = (function() {
                 }
 
             });
-
-            // анимация сжатия
-            {
-                let tl = new TimelineMax({
-                    onComplete: function () {
-                        scale += 0.1;
-                    }
-                });
-                scale -= 0.1;
-                tl.to(el_boss, 0.1, {scale: scale});
-                tl.to(el_boss, 0.1, {scale: 1});
-            }
         };
-        p.scroll.el.appendChild(el_boss);
-
-        p.scroll.el.appendChild(app.Utils.createIMG(app.IMAGES.getPath('/images/character_virus_light.png'), {class: 'dbl', style: 'position: absolute; left: 70px; top: -60px; pointer-events: none'}));
+        p.scroll.el.appendChild(art.el);
+        // 05.11 десятки игроков жали «Увеличить» вместо удара: что бить надо по самому голему, на экране не было сказано
+        if (hint.run !== p.tmp.virus.r) {
+            hint.run = p.tmp.virus.r;
+            hint.hits = 0;
+        }
+        if (hint.hits < HINT_HITS) {
+            el_hint = app.Utils.createDIV({class: 'battle_advice', style: 'top: 16px; pointer-events: none;',
+                html: 'Нажимай на {0}, чтобы ударить: <span class="info">1 удар — 1 энергия</span>'.format(GOLEM_ACC[art.kind])});
+            p.scroll.el.appendChild(el_hint);
+        }
 
         let health = p.tmp.virus.h;
         let healthMax = p.tmp.virus.hm;
@@ -250,9 +283,11 @@ app.Virus = (function() {
 
                 animation(0);
 
+                // частые удары: относительные -=10/+=10 накладывались и карта уезжала; отменяем прошлую и идём к абсолютным 0 → 10
+                TweenMax.killTweensOf(els.main);
                 let tl = new TimelineMax();
-                tl.to(els.main, 0.1, {top: '-=10'});
-                tl.to(els.main, 0.3, {top: '+=10'});
+                tl.to(els.main, 0.1, {top: 0});
+                tl.to(els.main, 0.3, {top: 10});
             }
         };
         let el_list = app.Utils.createDIV({class: 'list_s', style: 'position: absolute; left: 25px; top: 320px; width: 415px; padding: 5px; height: 78px;'});
@@ -271,71 +306,84 @@ app.Virus = (function() {
         el_list.appendChild(el_list_content);
         p.scroll.el.appendChild(el_list);
 
-        let crit_cfg = {
-            els: {}
-        };
-
-        let updateCritInfo = function() {
-            let e = p.tmp.virus.e;
-
-            if (!crit_cfg.els.main) {
-                crit_cfg.els.main = app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: 420px'});
-                p.scroll.el.appendChild(crit_cfg.els.main);
-                p.scroll.el.appendChild(app.Utils.createDIV({class: 'hr', style: 'position: absolute; width: 480px; top: 440px;'}));
-                p.scroll.el.appendChild(crit_cfg.els.advice = app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: 450px;', html: 'Можно увеличить шанс на <span class="info">{0}%</span>'.format(p.tmp.virus.crit.step)}));
+        const controls = p.tmp.battleControls = app.GolemRewards.createBattleControls({
+            virus: p.tmp.virus,
+            onOpenRewards: () => showPersonalRewards(p),
+            onCrit: function() {
+                controls.setBusy(true);
+                app.Network.command({cmd: 'VirusCritInc'}, function(data) {
+                    if (p.tmp._closed) return;
+                    controls.setBusy(false);
+                    if (data.error) {
+                        switch (data.error.code) {
+                            case 1:
+                                app.Utils.showInfo('У тебя уже максимальный крит');
+                                break;
+                            case 2:
+                                app.EventDispatcher.dispatchEvent('not enough resources', {price: {t: 1}});
+                                break;
+                            default:
+                                app.Utils.showInfo('Попробуйте позже');
+                                break;
+                        }
+                    } else {
+                        p.tmp.virus = app.Model.user.virus;
+                        if (p.tmp.virus.h <= 0) {
+                            finishBattle(p);
+                        } else {
+                            controls.updateCrit(p.tmp.virus);
+                        }
+                        app.Utils.showInfo('Шанс крита увеличен!', {type: 0});
+                    }
+                });
+            },
+            onRating: function() {
+                app.Network.command({cmd: 'VirusRating', group: p.tmp.virus.e.group}, function(data) {
+                    if (p.tmp._closed) return;
+                    if (data.list) rating(p, data);
+                    else app.Utils.showInfo('Рейтинг еще не сформирован');
+                });
             }
+        });
+        if (controls.personal) p.tmp.personalPanel = controls.personal;
+        p.scroll.el.appendChild(controls.el);
+        fitPopupHeight(p, 410 + controls.el.offsetHeight + 24);
+        let updateRatingPlace = function() { controls.updateRating(p.tmp.virus); };
+    }
 
-            crit_cfg.els.main.innerHTML = 'Шанс крита в текущей битве: <span class="info">{0}%</span>'.format(e.crit);
+    // голем оседает DEFEAT_MS, клики уже не принимаются; потом экран после боя
+    function finishBattle(p) {
+        if (p.tmp.defeated) return;
+        p.tmp.defeated = 1;
+        p.tmp.golemArt.defeat();
+        TweenMax.delayedCall(app.GolemArt.DEFEAT_MS / 1000, () => {
+            if (!p.tmp._closed) state_dead(p);
+        });
+    }
 
-            if (e.crit >= p.tmp.virus.crit.max) {
-                crit_cfg.els.advice.style.top = '470px';
-                crit_cfg.els.advice.innerText = 'У тебя максимальный крит';
-                app.Utils.addClass(crit_cfg.els.advice, 'minor');
-                if (crit_cfg.els.a) {
-                    p.scroll.el.removeChild(crit_cfg.els.a);
-                    delete crit_cfg.els.a;
-                }
-            } else {
-                if (!crit_cfg.els.a) {
-                    p.scroll.el.appendChild(crit_cfg.els.a = app.Utils.createA({class: 'btn_g mlra_ab', style: 'top: 470px; color: white;', html: 'Увеличить за <span class="res_icon res_icon_inline res_gem"></span>{0}'.format(p.tmp.virus.crit.price.v)}, function() {
-                        if (app.Utils.hasClass(crit_cfg.els.a, 'bw')) return;
-                        app.Utils.addClass(crit_cfg.els.a, 'bw');
-                        app.Network.command({cmd: 'VirusCritInc'}, function(data) {
-                            if (p.tmp._closed) return;
-                            app.Utils.removeClass(crit_cfg.els.a, 'bw');
-                            if (data.error) {
-                                switch (data.error.code) {
-                                    case 1:
-                                        app.Utils.showInfo('У тебя уже максимальный крит');
-                                        break;
-                                    case 2:
-                                        app.EventDispatcher.dispatchEvent('not enough resources', {price:{t:1}});
-                                        break;
-                                    default:
-                                        app.Utils.showInfo('Попробуйте позже');
-                                        break;
-                                }
-                            } else {
-                                p.tmp.virus = app.Model.user.virus;
-                                if (p.tmp.virus.h <= 0) {
-                                    state_dead(p);
-                                } else {
-                                    updateCritInfo();
-                                }
-                                app.Utils.showInfo('Шанс крита увеличен!', {type: 0});
-                            }
-                        });
-                    }));
-                } else {
-                    crit_cfg.els.a.innerHTML = 'Увеличить за <span class="res_icon res_icon_inline res_gem"></span>{0}'.format(p.tmp.virus.crit.price.v);
-                }
-            }
-        };
-        updateCritInfo();
+    function state_dead(p) {
+        delete p.tmp.updateVirusHealth;
+        delete p.tmp.personalPanel;
+        delete p.tmp.battleControls;
+        const hasPersonal = Boolean(app.GolemRewards.personalProgress(p.tmp.virus));
+        if (hasPersonal) fitPopupHeight(p, 575);
 
-        p.scroll.el.appendChild(app.Utils.createDIV({class: 'hr', style: 'position: absolute; width: 480px; top: 505px'}));
+        if (p.tmp.golemArt) p.tmp.golemArt.destroy();
+        app.Utils.removeAllChild(p.scroll.el);
 
-        let el_rating = app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: 520px'});
+        const art = p.tmp.golemArt = app.GolemArt.create({kind: p.tmp.virus.k, dead: true});
+        art.el.style.position = 'absolute';
+        art.el.style.left = '119px';
+        art.el.style.top = (hasPersonal ? 20 : 130) + 'px';
+        p.scroll.el.appendChild(art.el);
+        p.scroll.el.appendChild(app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: ' + (hasPersonal ? 265 : 400) + 'px', text: art.name + ' повержен!'}));
+        if (hasPersonal) {
+            p.tmp.personalPanel = app.GolemRewards.createVictoryPanel({virus: p.tmp.virus, top: 300, onOpenRewards: () => showPersonalRewards(p)});
+            p.scroll.el.appendChild(p.tmp.personalPanel.el);
+        }
+        p.scroll.el.appendChild(app.Utils.createDIV({class: 'hr', style: 'position: absolute; width: 480px; top: ' + (hasPersonal ? 475 : 450) + 'px;'}));
+
+        let el_rating = app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: ' + (hasPersonal ? 490 : 465) + 'px'});
         p.scroll.el.appendChild(el_rating);
 
         let updateRatingPlace = function() {
@@ -344,7 +392,7 @@ app.Virus = (function() {
         };
         updateRatingPlace();
 
-        p.scroll.el.appendChild(app.Utils.createA({class: 'btn_g', style: 'left: 160px; top: 540px; font-size: 12px', html: '<div class="rating_top_p rating_top_p1" style="transform: scale(0.6); transform-origin: center center 0px; position: relative; margin: -17px 0px -16px -8px; display: inline-block;"></div>Рейтинг по урону'}, function() {
+        p.scroll.el.appendChild(app.Utils.createA({class: 'btn_g', style: 'left: 160px; top: ' + (hasPersonal ? 520 : 490) + 'px; font-size: 12px', html: '<div class="rating_top_p rating_top_p1" style="transform: scale(0.6); transform-origin: center center 0px; position: relative; margin: -17px 0px -16px -8px; display: inline-block;"></div>Рейтинг по урону'}, function() {
             app.Network.command({cmd: 'VirusRating', group: p.tmp.virus.e.group}, function(data) {
                 if (p.tmp._closed) return;
                 if (data.list) {
@@ -356,34 +404,42 @@ app.Virus = (function() {
         }));
     }
 
-    function state_dead(p) {
-        delete p.tmp.updateVirusHealth;
+    function fitPopupHeight(p, required) {
+        const available0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
+        const available = Math.min(required, available0);
+        p.els.brd.style.top = Math.max(80, (available0 - available) / 2) + 'px';
+        p.els.brd_r.style.height = available + 'px';
+        p.els.wrap.style.height = available + 'px';
+        p.scroll.top = 0;
+        p.scroll.topMax = Math.max(0, required - available);
+        p.scroll.availableHeight = available;
+        p.scroll.el.style.top = '0px';
+    }
 
-        app.Utils.removeAllChild(p.scroll.el);
-
-        p.scroll.el.appendChild(app.Utils.createDIV({style: 'top: -20px; position: relative;', html: '<img src="'+app.IMAGES.getPath('/images/character_virus_dead.png')+'" class="dbl mlra_ab">'}));
-        p.scroll.el.appendChild(app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: 400px', text: 'Зараза повержена!'}));
-        p.scroll.el.appendChild(app.Utils.createDIV({class: 'hr', style: 'position: absolute; width: 480px; top: 450px;'}));
-
-        let el_rating = app.Utils.createDIV({class: 'battle_advice', style: 'width: 480px; top: 465px'});
-        p.scroll.el.appendChild(el_rating);
-
-        let updateRatingPlace = function() {
-            let place = p.tmp.virus.e.rating.p;
-            el_rating.innerHTML = 'Твое место в рейтинге: <span class="info">{0}</span>'.format(place === -1 ? '?' : place);
-        };
-        updateRatingPlace();
-
-        p.scroll.el.appendChild(app.Utils.createA({class: 'btn_g', style: 'left: 160px; top: 490px; font-size: 12px', html: '<div class="rating_top_p rating_top_p1" style="transform: scale(0.6); transform-origin: center center 0px; position: relative; margin: -17px 0px -16px -8px; display: inline-block;"></div>Рейтинг по урону'}, function() {
-            app.Network.command({cmd: 'VirusRating', group: p.tmp.virus.e.group}, function(data) {
-                if (p.tmp._closed) return;
-                if (data.list) {
-                    rating(p, data);
-                } else {
-                    app.Utils.showInfo('Рейтинг еще не сформирован');
-                }
-            });
-        }));
+    function showPersonalRewards(parent) {
+        if (!app.GolemRewards.personalProgress(parent.tmp.virus)) return;
+        const p = app.Popups.createPopup1({header: {value: 'Награды за участие'}});
+        p.els.brd_bg.className = 'brd_block_bg_golem_' + app.GolemArt.kindOf(parent.tmp.virus.k);
+        const groupLine = app.Utils.createDIV({class: 'battle_advice', style: 'position: relative; width: 420px; padding: 2px 0 6px',
+            text: 'Твоя группа: {0} уровней'.format(app.UserUtil.getLevelGroupName(parent.tmp.virus.e.group))});
+        p.scroll.el.appendChild(groupLine);
+        const content = app.GolemRewards.createLadder(parent.tmp.virus);
+        content.style.position = 'relative';
+        content.style.width = '420px';
+        p.scroll.el.appendChild(content);
+        app.Popups.add(p);
+        const required = groupLine.offsetHeight + content.offsetHeight;
+        const available0 = app.LAYOUT.getClientWHS0(80 + app.Menu.getReservedHeight());
+        const available = Math.min(required + 20, available0);
+        p.els.brd.style.top = Math.max(80, (available0 - available) / 2) + 'px';
+        p.els.brd_r.style.height = available + 'px';
+        p.els.wrap.style.left = '30px';
+        p.els.wrap.style.width = '420px';
+        p.els.wrap.style.height = available + 'px';
+        p.scroll.top = 0;
+        p.scroll.topMax = Math.max(0, required - available);
+        p.scroll.availableHeight = available;
+        p.scroll.el.style.top = '0px';
     }
 
     function rating(p, data) {
@@ -403,12 +459,6 @@ app.Virus = (function() {
                 }
                 scroll.el.style.top = scroll.top + 'px';
 
-                if (scroll.top === scroll.topMax) {
-                    el_scroll_sh_top.style.opacity = 0;
-                } else {
-                    el_scroll_sh_top.style.opacity = 1;
-                }
-
                 if (scroll.top === scroll.topMin) {
                     el_scroll_sh_bottom.style.opacity = 0;
                 } else {
@@ -419,6 +469,7 @@ app.Virus = (function() {
             }
         });
 
+        p1.els.brd_bg.className = 'brd_block_bg_golem_' + app.GolemArt.kindOf(p.tmp.virus.k);
         p1.tmp = {};
 
         p1.tmp.group = p.tmp.virus.e.group;
@@ -441,9 +492,9 @@ app.Virus = (function() {
         p1.els.brd_r.appendChild(el_header = app.Utils.createDIV({class: 'header', style: 'left: 115px; top: 0px;'}));
 
         let updateHeaders = function() {
-            let group = app.UserUtil.getLevelGroupByID(p1.tmp.group);
-            el_groups_filter.innerText = group.name;
-            el_header.innerText = 'Рейтинг {0}'.format(group.name);
+            const groupName = app.UserUtil.getLevelGroupName(p1.tmp.group);
+            el_groups_filter.innerText = groupName;
+            el_header.innerText = 'Рейтинг {0}'.format(groupName);
         };
 
         let clearContent = function() {
@@ -512,8 +563,8 @@ app.Virus = (function() {
             });
         };
 
-        let el_scroll_sh_top, el_scroll_sh_bottom;
-        p1.els.wrap.appendChild(el_scroll_sh_top = app.Utils.createDIV({class: 'scroll_sh_top', style: 'width: 420px; opacity: 0'}));
+        // верхней тени нет: на фоне голема она темнила строки под «Моё место»
+        let el_scroll_sh_bottom;
         p1.els.wrap.appendChild(el_scroll_sh_bottom = app.Utils.createDIV({class: 'scroll_sh_bottom', style: 'width: 420px; opacity: 0'}));
 
         let contentRequiredHeight = 600;
@@ -592,9 +643,9 @@ app.Virus = (function() {
 
                     let updateRewards = function(group) {
                         if (group === app.Model.user.virus.e.group) {
-                            el_group_text.innerHTML = 'Ты находишься в группе игроков {0} уровней.<br/>Награды за рейтинг:'.format(app.UserUtil.getBossGroupDesc(group));
+                            el_group_text.innerHTML = 'Ты находишься в группе игроков {0} уровней.<br/>Награды за рейтинг:'.format(app.UserUtil.getLevelGroupName(group));
                         } else {
-                            el_group_text.innerHTML = 'Награды группы игроков {0} уровней:'.format(app.UserUtil.getBossGroupDesc(group));
+                            el_group_text.innerHTML = 'Награды группы игроков {0} уровней:'.format(app.UserUtil.getLevelGroupName(group));
                         }
                         app.Utils.removeAllChild(el);
                         app.Network.command({cmd: 'VirusRewards', group: group}, function(data) {
@@ -603,17 +654,9 @@ app.Virus = (function() {
 
                                 let myEntry;
                                 if (app.Model.user.virus && app.Model.user.virus.e && app.Model.user.virus.e.group === group) {
+                                    // -1 — ещё без места; ниже последнего приза награды за место нет
                                     let myPlace = app.Model.user.virus.e.rating.p;
-                                    for (let i = 0; i < list.length; i++) {
-                                        let entry = list[i];
-                                        if (myPlace <= entry.p) {
-                                            myEntry = entry;
-                                            break;
-                                        }
-                                    }
-                                    if (!myEntry) {
-                                        myEntry = list[list.length - 1];
-                                    }
+                                    if (myPlace > 0) myEntry = list.find(entry => myPlace <= entry.p);
                                 }
 
                                 list.forEach((entry, i) => {
@@ -643,6 +686,10 @@ app.Virus = (function() {
                                         el_c.appendChild(app.Utils.createSPAN({class: 'res_icon res_icon_inline res_dust'}));
                                         el_c.appendChild(app.Utils.createText(app.Utils.toMoney1(entry.dust.min)));
                                     }
+                                    if (entry.sd) {
+                                        el_c.appendChild(app.Utils.createSPAN({class: 'res_icon res_icon_inline res_dust_stone'}));
+                                        el_c.appendChild(app.Utils.createText(app.Utils.toMoney1(entry.sd.min)));
+                                    }
                                     if (entry.gold) {
                                         el_c.appendChild(app.Utils.createSPAN({class: 'res_icon res_icon_inline res_gold'}));
                                         el_c.appendChild(app.Utils.createText(app.Utils.toMoney1(entry.gold.min)));
@@ -671,6 +718,7 @@ app.Virus = (function() {
                                     el_r.appendChild(el_c);
                                     el.appendChild(el_r);
                                 });
+                                el.appendChild(app.Utils.createDIV({class: 'battle_advice minor', style: 'position: relative; left: 0; width: 400px; white-space: normal; margin-top: 8px', text: 'С {0}-го места награды за рейтинг нет. Гарантированная награда за энергию сохраняется.'.format(list[list.length - 1].p + 1)}));
                             }
                             updateScroll();
                         });

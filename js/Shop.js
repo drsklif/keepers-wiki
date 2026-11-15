@@ -285,7 +285,8 @@ if (!app.Shop) {
                             app.Utils.showInfo('Куплено', {type: 0});
                         }
 
-                        if (!p || type !== p.tmp.type) return;
+                        // slots живут в общем объекте магазина и переписываются каждым новым окном — ответ в закрытое окно не трогаем
+                        if (!p || p.tmp._closed || type !== p.tmp.type) return;
 
                         const cfg_new = app.Shop._createSlot(p, i, entry);
                         const cfg_old = p.tmp.shop.slots[i];

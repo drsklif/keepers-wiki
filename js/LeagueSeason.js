@@ -309,13 +309,14 @@ app.LeagueSeason = (function () {
             </div>
             <div class="league_season_note">Достигнутые награды сохраняются после поражений</div>`;
 
-        content.querySelectorAll('[data-claim]').forEach(button => {
+        // NodeList.forEach нет в Chrome до 51 (старые Android WebView)
+        Array.prototype.forEach.call(content.querySelectorAll('[data-claim]'), button => {
             button.onclick = () => claim(button, {cmd: 'LeagueSeasonClaim', milestone: +button.dataset.milestone, track: button.dataset.track});
         });
         const claimAll = content.querySelector('[data-claim-all]');
         if (claimAll) claimAll.onclick = () => claim(claimAll, {cmd: 'LeagueSeasonClaimAll'});
         if (!season.sp) {
-            content.querySelectorAll('[data-pass-offer]').forEach(el => el.onclick = showPassOffer);
+            Array.prototype.forEach.call(content.querySelectorAll('[data-pass-offer]'), el => el.onclick = showPassOffer);
         }
 
         app.Utils.removeAllChild(p.scroll.el);
