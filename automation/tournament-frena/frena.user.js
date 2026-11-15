@@ -55,6 +55,7 @@
       tournamentKey: "",
       seenFights: 0,
       openingPlace: null,
+      loggedBattlePhase: null,
       pvptBattleLive: false,
       sawPvptBattlePopup: false,
       dismissResultUntil: 0,
@@ -230,6 +231,50 @@
       return ids;
     }
 
+    function isFoughtEnemy(userId, fought) {
+      return (fought || foughtEnemyIds()).has(Number(userId));
+    }
+
+    function usersAboveMe(me) {
+      const users = getPvpt()?.g?.users;
+      const myPlace = Number(me?.place);
+      if (!Array.isArray(users) || !me || !Number.isFinite(myPlace) || myPlace <= 0) return [];
+      return users
+        .filter((user) => user && user.id !== me.id && Number(user.place) < myPlace)
+        .slice()
+        .sort((a, b) => Number(a.place) - Number(b.place));
+    }
+
+    function formatEnemyShort(user, fought) {
+      const mark = isFoughtEnemy(user.id, fought) ? "уже бит" : "свободен";
+      const power = user.deck?.power != null ? `, мощь ${formatPower(user.deck.power)}` : "";
+      return `${enemyName(user)} #${user.place ?? "?"} (${mark}${power})`;
+    }
+
+    function logPhaseRoster() {
+      if (getPhase() !== 3 || !isEnrolled() || !getPvpt()?.g) return;
+      const battlePhase = getBattlePhase();
+      if (!battlePhase || state.loggedBattlePhase === battlePhase) return;
+      state.loggedBattlePhase = battlePhase;
+      const me = getMyEntry();
+      const fought = foughtEnemyIds();
+      const myPlace = Number(me?.place);
+      const above = usersAboveMe(me);
+      const freeAbove = above.filter((user) => !isFoughtEnemy(user.id, fought));
+      log(
+        `Фаза ${battlePhase}: моё место ${Number.isFinite(myPlace) && myPlace > 0 ? myPlace : "?"}, ` +
+          `очки ${me?.points1 ?? me?.points ?? "?"}, боёв ${completedBattles().length} из ${MAX_FIGHTS}.`
+      );
+      if (!above.length) {
+        log(`Фаза ${battlePhase}: выше никого нет.`);
+        return;
+      }
+      log(
+        `Фаза ${battlePhase}: выше ${above.length}, свободны ${freeAbove.length}: ` +
+          above.map((user) => formatEnemyShort(user, fought)).join("; ")
+      );
+    }
+
     function isLiveBattleOpen() {
       return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
     }
@@ -348,6 +393,7 @@
         state.fightsAtSend = -1;
         state.nextBattleAt = 0;
         state.openingPlace = null;
+        state.loggedBattlePhase = null;
       }
       const me = getMyEntry();
       if (me && state.openingPlace == null && me.place != null) {
@@ -415,10 +461,19 @@
 
     function pickEnemy() {
       const me = getMyEntry();
-      const myPlace = Number(me?.place) || 0;
+      const rawPlace = Number(me?.place);
+      // Без валидного места раньше было || 0 → «выше» пусто и бил самого нижнего.
+      // Фоллбек 10: считаем себя последними и предпочитаем тех, кто выше.
+      const placeFallback = !Number.isFinite(rawPlace) || rawPlace <= 0;
+      const myPlace = placeFallback ? 10 : rawPlace;
       const pool = availableEnemies();
       if (!pool.length) return null;
+      if (placeFallback) {
+        log(`Место для выбора цели неверно (${me?.place}), считаю 10.`);
+      }
 
+      const fought = foughtEnemyIds();
+      const above = usersAboveMe(me);
       const lower = pool.filter((user) => Number(user.place) > myPlace);
       const higher = pool.filter((user) => Number(user.place) < myPlace);
       const equal = pool.filter((user) => Number(user.place) === myPlace);
@@ -430,12 +485,22 @@
         reason = lower.length
           ? `старт ${state.openingPlace}, первая атака ниже`
           : `старт ${state.openingPlace}, ниже нет, беру доступного`;
+      } else if (higher.length) {
+        candidates = higher;
+        reason = `бью выше за очки`;
+      } else if (equal.length) {
+        candidates = equal;
+        reason = `выше нет, беру равных`;
       } else {
-        candidates = higher.length ? higher : equal.length ? equal : lower;
-        reason = higher.length
-          ? `бью выше за очки`
-          : `выше нет, беру доступного`;
+        candidates = lower;
+        const aboveSummary = above.length
+          ? above.map((user) => formatEnemyShort(user, fought)).join("; ")
+          : "никого";
+        reason =
+          `выше нет (место ${myPlace}, выше: ${aboveSummary}), беру доступного`;
       }
+
+      if (!candidates.length) return null;
 
       candidates = candidates.slice().sort((a, b) => {
         const placeDiff = Number(b.place) - Number(a.place);
@@ -826,6 +891,7 @@
     function scan(source) {
       if (!isUserReady()) return;
       syncFights();
+      logPhaseRoster();
       noteTournamentResult();
       noteBattleClosed();
       if (state.autoEnabled) {

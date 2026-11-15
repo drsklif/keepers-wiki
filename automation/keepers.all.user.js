@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Keepers Helper
 // @namespace    https://keepers.local/
-// @version      0.2.0
+// @version      0.2.4
 // @description		Automation of actions for the game Keepers
 // @description:en	Automation of actions for the game Keepers
 // @description:ru	Автоматизация рутинных действий в игре Keepers
@@ -16,7 +16,7 @@
 
   // Версия сборки. Должна совпадать с // @version в шапке.
   // PATCH — исправление, MINOR — новое поведение, MAJOR — ломающее изменение API или ключей хранения.
-  const VERSION = "0.2.0";
+  const VERSION = "0.2.4";
 
   const helper = {
     version: VERSION,
@@ -98,7 +98,7 @@
 (function () {
   "use strict";
 
-  const MODULE_VERSION = "0.2.0";
+  const MODULE_VERSION = "0.2.3";
 
   const helper = window.KeepersHelper;
   if (!helper || typeof helper.registerModule !== "function") {
@@ -233,6 +233,9 @@
       noSnapshotCardsLogged: false,
       selectionIndicesLogged: false,
       cardSelectionDebugLogged: false,
+      pendingPhaseCards: null,
+      pendingPhaseCardsSource: null,
+      cardUiWaitLogged: false,
       commandHooksInstalled: 0,
       commandHookScanTimer: null,
       pollTimer: null,
@@ -309,7 +312,13 @@
 
     function safeGetBattlePopup() {
       try {
-        if (!window.app || !app.Popups || !app.Popups.getLast) return null;
+        if (!window.app || !app.Popups) return null;
+        // getByID: поверх BATTLE может лежать toast/итог/опции — getLast тогда врёт и автопилот «заканчивает» бой.
+        if (typeof app.Popups.getByID === "function") {
+          const byId = app.Popups.getByID("BATTLE");
+          if (byId && byId.cfg && byId.cfg.id === "BATTLE") return byId;
+        }
+        if (typeof app.Popups.getLast !== "function") return null;
         const p = app.Popups.getLast();
         if (!p || !p.cfg) return null;
         return p.cfg.id === "BATTLE" ? p : null;
@@ -473,6 +482,11 @@
       applyBattleTweenScale(source || "dice-boost-end");
     }
 
+    function cardDomWaitLimitMs() {
+      const raw = Number(CONFIG.delays?.cardDomWaitMs ?? CONFIG.cardDomWaitMs);
+      return Number.isFinite(raw) && raw > 0 ? raw : 15000;
+    }
+
     function performAutobattleCardDom(bestIdx, best, sourceLabel, scoredKey, gen, deadline) {
       if (gen !== state.cardSelectionGen || !state.autoEnabled || state.currentPhase !== "CARD_SELECTION") {
         state.autoSelectionPendingKey = null;
@@ -481,11 +495,11 @@
       const popup = safeGetBattlePopup();
       const roots = popup ? listBattleCardChoiceRoots(popup) : [];
       if (!roots[bestIdx]) {
-        const limit = deadline || Date.now() + CONFIG.cardDomWaitMs;
+        const limit = deadline || Date.now() + cardDomWaitLimitMs();
         if (Date.now() < limit) {
           if (!deadline) {
             log(
-              `Фаза 1: карты ещё рисуются (idx=${bestIdx}, .sh_card=${roots.length}). Жду экран выбора. (${sourceLabel})`
+              `Фаза 1: карты ещё рисуются (idx=${bestIdx}, .sh_card=${roots.length}). Жду экран выбора до ${cardDomWaitLimitMs()}ms. (${sourceLabel})`
             );
           }
           setTimeout(
@@ -501,8 +515,14 @@
             `Фаза 1: автовыбор DOM — нет карты idx=${bestIdx} (элементов .sh_card среди детей scroll: ${roots.length}). (${sourceLabel})`
           );
         }
+        // Снимаем блокировку, чтобы следующий снапшот/poll мог выбрать карту снова.
         state.autoSelectionPendingKey = null;
+        if (state.lastAutoCardKey === scoredKey) state.lastAutoCardKey = null;
         return;
+      }
+
+      if (state.currentPhase === "CARD_SELECTION") {
+        applyBattleTweenScale("cards-dom-ready");
       }
 
       roots[bestIdx].click();
@@ -571,6 +591,15 @@
       }
     }
 
+    function cardChoiceUiReady(popup) {
+      return listBattleCardChoiceRoots(popup || safeGetBattlePopup()).length > 0;
+    }
+
+    function isTournamentBattlePopup(popup) {
+      const p = popup || safeGetBattlePopup();
+      return Boolean(p?.cfg && (p.cfg.pvpt || p.cfg.champt));
+    }
+
     function applyBattleTweenScale(source) {
       if (!window.TweenMax || typeof TweenMax.globalTimeScale !== "function") {
         log(`Скорость UI: TweenMax.globalTimeScale недоступен. (${source})`);
@@ -578,11 +607,17 @@
       }
       if (state.diceAnimBoostActive) return;
       const base = getSelectedUiSpeed();
-      const factor = state.currentPhase === "CARD_SELECTION" ? getCardPhaseSpeedFactor() : 1;
+      // Не ускорять фазу карт, пока клиент ещё на VS/intro: в турнирах BattleUpdate
+      // уже CARD_SELECTION, а .sh_card появятся только через ~1.8с. Ранний x2.4 ломает Timeline.
+      const cardsReady = cardChoiceUiReady();
+      const factor =
+        state.currentPhase === "CARD_SELECTION" && cardsReady ? getCardPhaseSpeedFactor() : 1;
       const scale = Number((base * factor).toFixed(4));
       TweenMax.globalTimeScale(scale);
       if (factor !== 1) {
         log(`Скорость UI: x${base} × ${factor} (фаза карт) = x${scale}. (${source})`);
+      } else if (state.currentPhase === "CARD_SELECTION" && !cardsReady) {
+        log(`Скорость UI: x${base} (жду карты на экране, без ускорения фазы). (${source})`);
       } else {
         log(`Скорость UI: x${base}. (${source})`);
       }
@@ -1014,6 +1049,9 @@
           state.lastAutoCardKey = null;
           state.lastRecommendationKey = null;
           state.recommendationUiWaitKey = null;
+          state.pendingPhaseCards = null;
+          state.pendingPhaseCardsSource = null;
+          state.cardUiWaitLogged = false;
           state.cardSelectionGen += 1;
         }
         if (state.currentPhase === "DICE_SELECTION") {
@@ -1054,6 +1092,9 @@
           state.lastAutoCardKey = null;
           state.lastRecommendationKey = null;
           state.recommendationUiWaitKey = null;
+          state.pendingPhaseCards = null;
+          state.pendingPhaseCardsSource = null;
+          state.cardUiWaitLogged = false;
           state.cardSelectionGen += 1;
         }
         if (state.currentPhase === "DICE_SELECTION") {
@@ -1262,15 +1303,29 @@
       }
     }
 
-    /** Доп. стихии из гибридных комбо (type содержит F/N/W ≠ основной et). */
+    /** Доп. стихии только из гибридных комбо: в type есть и основная et, и другая F/N/W. */
     function collectSecondaryElements(card, primaryEt) {
       const secondary = [];
       const seen = new Set();
+      if (!primaryEt || (primaryEt !== "F" && primaryEt !== "N" && primaryEt !== "W")) return secondary;
       const combos = Array.isArray(card?.combos) ? card.combos : [];
       for (const combo of combos) {
-        const types = Array.isArray(combo?.type) ? combo.type : [];
-        for (const t of types) {
-          if ((t === "F" || t === "N" || t === "W") && t !== primaryEt && !seen.has(t)) {
+        const raw = Array.isArray(combo?.type)
+          ? combo.type
+          : typeof combo?.type === "string" && combo.type
+            ? [combo.type]
+            : [];
+        const elems = [];
+        const local = new Set();
+        for (const t of raw) {
+          if ((t === "F" || t === "N" || t === "W") && !local.has(t)) {
+            local.add(t);
+            elems.push(t);
+          }
+        }
+        if (!elems.includes(primaryEt) || elems.length < 2) continue;
+        for (const t of elems) {
+          if (t !== primaryEt && !seen.has(t)) {
             seen.add(t);
             secondary.push(t);
           }
@@ -1354,6 +1409,16 @@
       return { mask, note, cardLine, allTargetNow };
     }
 
+    function clearDiceAutoLocks(snapKey) {
+      state.diceAutoPendingKey = null;
+      if (snapKey && state.lastDiceRecommendationKey === snapKey) {
+        state.lastDiceRecommendationKey = null;
+      }
+      if (snapKey && state.diceRecommendationUiWaitKey === snapKey) {
+        state.diceRecommendationUiWaitKey = null;
+      }
+    }
+
     function runPhaseTwoDiceRecommendation(battle, sourceLabel) {
       const dices = battle?.m1?.dices;
       if (!Array.isArray(dices) || dices.length === 0) {
@@ -1362,9 +1427,34 @@
       }
       const rolls = battle?.m1?.rolls;
       const rollsNum = typeof rolls === "number" && Number.isFinite(rolls) ? rolls : -1;
-      if (rollsNum <= 0) return;
       /** Дедуп лога: число оставшихся бросков + для каждого кубика пара «грань t» и «уже закреплён игроком s». */
       const snapKey = `${rollsNum}|${dices.map((d) => `${d?.t ?? "?"}:${d?.s ? 1 : 0}`).join(",")}`;
+
+      // rolls=0: клиент сам уходит в DICE_END через ~1с, но если UI завис на «В бой!» — дожимаем.
+      if (rollsNum <= 0) {
+        if (!state.autoEnabled) return;
+        if (state.lastAutoDiceKey === snapKey || state.diceAutoPendingKey === snapKey) return;
+        state.diceAutoPendingKey = snapKey;
+        const gen = (state.cardSelectionGen += 1);
+        setTimeout(() => {
+          if (!state.autoEnabled || gen !== state.cardSelectionGen || state.currentPhase !== "DICE_SELECTION") {
+            clearDiceAutoLocks(snapKey);
+            return;
+          }
+          const btn = findDiceRollControl(safeGetBattlePopup());
+          const btnText = (btn?.textContent || "").trim();
+          if (btn && btnText.startsWith("В бой")) {
+            btn.click();
+            state.lastAutoDiceKey = snapKey;
+            state.diceAutoPendingKey = null;
+            log(`Фаза 2: rolls=0, жму «${btnText}». (${sourceLabel})`);
+            triggerBattleFastSkip(`rolls0:${sourceLabel}`);
+            return;
+          }
+          clearDiceAutoLocks(snapKey);
+        }, scaleDelay(CONFIG.delays.retryPollReady));
+        return;
+      }
 
       // Первый кадр DICE_SELECTION в клиенте часто искусственный: 6xF до реального BattleDiceRoll.
       const looksLikeWarmup =
@@ -1411,15 +1501,15 @@
 
         setTimeout(() => {
           if (!state.autoEnabled) {
-            state.diceAutoPendingKey = null;
+            clearDiceAutoLocks(snapKey);
             return;
           }
           if (gen !== state.cardSelectionGen) {
-            state.diceAutoPendingKey = null;
+            clearDiceAutoLocks(snapKey);
             return;
           }
           if (state.currentPhase !== "DICE_SELECTION") {
-            state.diceAutoPendingKey = null;
+            clearDiceAutoLocks(snapKey);
             return;
           }
 
@@ -1429,7 +1519,7 @@
             log(
               `Фаза 2: автовыбор кубиков пропущен — в UI dice_item=${items.length}, в модели=${mask.length}.`
             );
-            state.diceAutoPendingKey = null;
+            clearDiceAutoLocks(snapKey);
             return;
           }
 
@@ -1442,24 +1532,32 @@
           }
 
           const applyMaskAndClick = (attempt = 0) => {
+            if (gen !== state.cardSelectionGen || !state.autoEnabled || state.currentPhase !== "DICE_SELECTION") {
+              clearDiceAutoLocks(snapKey);
+              return;
+            }
             const pNow = safeGetBattlePopup();
             const itemsNow = listBattleDiceItems(pNow);
             const rollBtnNow = findDiceRollControl(pNow);
             if (!rollBtnNow) {
+              if (attempt < 8) {
+                setTimeout(() => applyMaskAndClick(attempt + 1), scaleDelay(CONFIG.delays.retryPoll));
+                return;
+              }
               log("Фаза 2: автовыбор кубиков — кнопка броска не найдена.");
-              state.diceAutoPendingKey = null;
+              clearDiceAutoLocks(snapKey);
               return;
             }
 
             if (itemsNow.length !== mask.length) {
-              if (attempt < 5) {
+              if (attempt < 8) {
                 setTimeout(() => applyMaskAndClick(attempt + 1), scaleDelay(CONFIG.delays.retryPoll));
                 return;
               }
               log(
                 `Фаза 2: автовыбор кубиков пропущен — в UI dice_item=${itemsNow.length}, в модели=${mask.length}.`
               );
-              state.diceAutoPendingKey = null;
+              clearDiceAutoLocks(snapKey);
               return;
             }
 
@@ -1476,26 +1574,26 @@
               const selectedCount = countSelectedDiceItems(itemsNow);
               const readyForFight = selectedCount === mask.length && btnText.startsWith("В бой");
               if (!readyForFight) {
-                if (attempt < 6) {
+                if (attempt < 10) {
                   setTimeout(() => applyMaskAndClick(attempt + 1), scaleDelay(CONFIG.delays.retryPollReady));
                   return;
                 }
+                // Не бросаем ход: клики могли не пройти из‑за анимации. Жмём то, что есть.
                 log(
-                  `Фаза 2: все 6 целевые, но UI не готов к "В бой!" (selected=${selectedCount}/${mask.length}, btn="${btnText}").`
+                  `Фаза 2: все 6 целевые, UI ещё не «В бой!» (selected=${selectedCount}/${mask.length}, btn="${btnText}") — жму кнопку как есть.`
                 );
-                state.diceAutoPendingKey = null;
-                return;
               }
             }
 
             rollBtnNow.click();
             state.lastAutoDiceKey = snapKey;
             state.diceAutoPendingKey = null;
-            log(`Фаза 2: автовыбор применён, клик по кнопке "${btnText}".`);
-            if (btnText.startsWith("Бросить")) {
+            const clickedText = (rollBtnNow.textContent || "").trim() || btnText;
+            log(`Фаза 2: автовыбор применён, клик по кнопке "${clickedText}".`);
+            if (clickedText.startsWith("Бросить")) {
               triggerDiceRollAnimationBoost(`roll-click:${sourceLabel}`);
             }
-            if (btnText.startsWith("В бой")) {
+            if (clickedText.startsWith("В бой")) {
               triggerBattleFastSkip(`after-dice-click:${sourceLabel}`);
             }
           };
@@ -1592,6 +1690,86 @@
       }, waitMs);
     }
 
+    function extractPhaseOneCards(battle, source) {
+      const m1Cards = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
+      if (m1Cards && m1Cards.length >= 1) {
+        return {
+          cards: m1Cards.slice(0, 3),
+          label: `${source} -> m1.cards[0..2]`,
+        };
+      }
+
+      const cardContext = getSelectableCardsFromBattleSnapshot(battle);
+      if (cardContext) {
+        return {
+          cards: cardContext.cards,
+          label: `${source} -> ${cardContext.path}`,
+        };
+      }
+
+      debugCardSelectionSnapshot(battle, source);
+      const idxSelection = findSelectionIndicesInBattleSnapshot(battle);
+      if (idxSelection) {
+        state.selectionIndicesLogged = true;
+        log(
+          `Фаза 1: найден выбор по индексам (${idxSelection.path}) -> [${idxSelection.indices.join(", ")}].`
+        );
+        return {
+          cards: idxSelection.cards,
+          label: `${source} -> ${idxSelection.path}`,
+        };
+      }
+
+      if (!state.noSnapshotCardsLogged) {
+        state.noSnapshotCardsLogged = true;
+        const m1DeckLen = Array.isArray(battle?.m1?.cards) ? battle.m1.cards.length : 0;
+        log(
+          `Фаза 1: state=CARD_SELECTION (${source}), но карты для выбора не извлечены из snapshot. m1.cards=${m1DeckLen}`
+        );
+      }
+
+      const fullDeck = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
+      if (fullDeck && fullDeck.length > 0) {
+        return {
+          cards: fullDeck,
+          label: `${source} -> m1.cards(full-deck fallback)`,
+        };
+      }
+      return null;
+    }
+
+    function queuePhaseOneWhenUiReady(phaseCards, sourceLabel) {
+      state.pendingPhaseCards = phaseCards;
+      state.pendingPhaseCardsSource = sourceLabel;
+      if (!cardChoiceUiReady()) {
+        if (!state.cardUiWaitLogged) {
+          state.cardUiWaitLogged = true;
+          const kind = isTournamentBattlePopup() ? "турнирный бой" : "бой";
+          log(
+            `Фаза 1: сервер уже CARD_SELECTION, UI ещё без карт (${kind}). Жду .sh_card, скорость не трогаю. (${sourceLabel})`
+          );
+        }
+        return;
+      }
+      flushPendingPhaseOne("ui-ready");
+    }
+
+    function flushPendingPhaseOne(reason) {
+      const phaseCards = state.pendingPhaseCards;
+      const sourceLabel = state.pendingPhaseCardsSource || reason;
+      if (!phaseCards || !Array.isArray(phaseCards) || phaseCards.length < 1) return;
+      if (state.currentPhase !== "CARD_SELECTION") return;
+      if (!cardChoiceUiReady()) return;
+      state.pendingPhaseCards = null;
+      state.pendingPhaseCardsSource = null;
+      state.cardUiWaitLogged = false;
+      state.noSnapshotCardsLogged = false;
+      state.selectionIndicesLogged = false;
+      state.noContextLogged = false;
+      applyBattleTweenScale(`cards-ready:${reason}`);
+      runPhaseOneCardChoice(phaseCards, `${sourceLabel} [${reason}]`);
+    }
+
     function handleBattleSnapshot(battle, source) {
       if (!battle || typeof battle !== "object") return;
 
@@ -1601,68 +1779,46 @@
       }
 
       if (phase === "DICE_SELECTION") {
+        state.pendingPhaseCards = null;
+        state.pendingPhaseCardsSource = null;
+        state.cardUiWaitLogged = false;
         runPhaseTwoDiceRecommendation(battle, source);
       }
 
       if (phase !== "CARD_SELECTION") return;
 
       // BattlePage: u.m1.model.cards[0], [1], [2] if present; idx в BattleCardSelected совпадает с позицией в этом срезе (0..2).
-      const m1Cards = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
-      if (m1Cards && m1Cards.length >= 1) {
-        const phaseCards = m1Cards.slice(0, 3);
-        state.noSnapshotCardsLogged = false;
-        state.selectionIndicesLogged = false;
-        state.noContextLogged = false;
-        runPhaseOneCardChoice(phaseCards, `${source} -> m1.cards[0..2]`);
-        return;
-      }
-
-      const cardContext = getSelectableCardsFromBattleSnapshot(battle);
-      if (!cardContext) {
-        debugCardSelectionSnapshot(battle, source);
-
-        const idxSelection = findSelectionIndicesInBattleSnapshot(battle);
-        if (idxSelection) {
-          state.noSnapshotCardsLogged = false;
-          state.selectionIndicesLogged = true;
-          log(
-            `Фаза 1: найден выбор по индексам (${idxSelection.path}) -> [${idxSelection.indices.join(", ")}].`
-          );
-          runPhaseOneCardChoice(idxSelection.cards, `${source} -> ${idxSelection.path}`);
-          return;
-        }
-
-        if (!state.noSnapshotCardsLogged) {
-          state.noSnapshotCardsLogged = true;
-          const m1DeckLen = Array.isArray(battle?.m1?.cards) ? battle.m1.cards.length : 0;
-          log(
-            `Фаза 1: state=CARD_SELECTION (${source}), но карты для выбора не извлечены из snapshot. m1.cards=${m1DeckLen}`
-          );
-        }
-
-        const fullDeck = Array.isArray(battle?.m1?.cards) ? battle.m1.cards : null;
-        if (fullDeck && fullDeck.length > 0) {
-          runPhaseOneCardChoice(fullDeck, `${source} -> m1.cards(full-deck fallback)`);
-        }
-        return;
-      }
-      state.noSnapshotCardsLogged = false;
-      state.selectionIndicesLogged = false;
-      state.noContextLogged = false;
-      runPhaseOneCardChoice(cardContext.cards, `${source} -> ${cardContext.path}`);
+      const extracted = extractPhaseOneCards(battle, source);
+      if (!extracted) return;
+      queuePhaseOneWhenUiReady(extracted.cards, extracted.label);
     }
 
     /** Не затирать фазу в null: detectPhase часто не видит состояние в DOM, а фаза уже выставлена из снапшота боя (сокет/command). */
     function updatePhaseTracking(popup) {
       const detected = detectPhase(popup);
       if (!detected) return;
+      // Глубокий обход popup иногда находит чужой END/INIT и срывает автовыбор на старте турнирного боя.
+      if (
+        (state.currentPhase === "CARD_SELECTION" || state.currentPhase === "DICE_SELECTION") &&
+        (detected.phase === "END" ||
+          detected.phase === "INIT_BATTLE" ||
+          detected.phase === "NONE" ||
+          detected.phase === "ENEMY_WAIT" ||
+          detected.phase === "ENEMY_READY")
+      ) {
+        return;
+      }
       setPhase(detected.phase, detected.path || "popup");
+      if (detected.phase === "CARD_SELECTION") {
+        flushPendingPhaseOne("phase-track");
+      }
     }
 
     function onBattleDetected(source, popup) {
       if (!popup) return;
       if (state.battleActive) {
         state.popupMisses = 0;
+        flushPendingPhaseOne("battle-poll");
         return;
       }
 
@@ -1671,10 +1827,16 @@
       state.popupMisses = 0;
       /* Не сбрасывать currentPhase: ответ BattleUpdate мог уже выставить CARD_SELECTION через handleBattleSnapshot;
          обнуление здесь ломает отложенный автовыбор (таймер видит фазу не CARD_SELECTION). Фазу обнуляет onBattleEnded. */
-      state.lastRecommendationKey = null;
-      state.lastAutoCardKey = null;
-      state.autoSelectionPendingKey = null;
-      state.recommendationUiWaitKey = null;
+      // Если снапшот уже запустил выбор карт — не сбрасываем pending, иначе турнирный бой теряет автовыбор.
+      const preserveCardAuto =
+        state.currentPhase === "CARD_SELECTION" &&
+        (state.autoSelectionPendingKey || state.pendingPhaseCards);
+      if (!preserveCardAuto) {
+        state.lastRecommendationKey = null;
+        state.lastAutoCardKey = null;
+        state.autoSelectionPendingKey = null;
+        state.recommendationUiWaitKey = null;
+      }
       state.lastDiceRecommendationKey = null;
       state.diceRecommendationUiWaitKey = null;
       state.diceWarmupSkippedKey = null;
@@ -1745,6 +1907,9 @@
       state.noSnapshotCardsLogged = false;
       state.selectionIndicesLogged = false;
       state.cardSelectionDebugLogged = false;
+      state.pendingPhaseCards = null;
+      state.pendingPhaseCardsSource = null;
+      state.cardUiWaitLogged = false;
       updateOverlay();
       log("Battle ended or popup closed.");
     }
@@ -5115,6 +5280,7 @@
       tournamentKey: "",
       seenFights: 0,
       openingPlace: null,
+      loggedBattlePhase: null,
       pvptBattleLive: false,
       sawPvptBattlePopup: false,
       dismissResultUntil: 0,
@@ -5290,6 +5456,50 @@
       return ids;
     }
 
+    function isFoughtEnemy(userId, fought) {
+      return (fought || foughtEnemyIds()).has(Number(userId));
+    }
+
+    function usersAboveMe(me) {
+      const users = getPvpt()?.g?.users;
+      const myPlace = Number(me?.place);
+      if (!Array.isArray(users) || !me || !Number.isFinite(myPlace) || myPlace <= 0) return [];
+      return users
+        .filter((user) => user && user.id !== me.id && Number(user.place) < myPlace)
+        .slice()
+        .sort((a, b) => Number(a.place) - Number(b.place));
+    }
+
+    function formatEnemyShort(user, fought) {
+      const mark = isFoughtEnemy(user.id, fought) ? "уже бит" : "свободен";
+      const power = user.deck?.power != null ? `, мощь ${formatPower(user.deck.power)}` : "";
+      return `${enemyName(user)} #${user.place ?? "?"} (${mark}${power})`;
+    }
+
+    function logPhaseRoster() {
+      if (getPhase() !== 3 || !isEnrolled() || !getPvpt()?.g) return;
+      const battlePhase = getBattlePhase();
+      if (!battlePhase || state.loggedBattlePhase === battlePhase) return;
+      state.loggedBattlePhase = battlePhase;
+      const me = getMyEntry();
+      const fought = foughtEnemyIds();
+      const myPlace = Number(me?.place);
+      const above = usersAboveMe(me);
+      const freeAbove = above.filter((user) => !isFoughtEnemy(user.id, fought));
+      log(
+        `Фаза ${battlePhase}: моё место ${Number.isFinite(myPlace) && myPlace > 0 ? myPlace : "?"}, ` +
+          `очки ${me?.points1 ?? me?.points ?? "?"}, боёв ${completedBattles().length} из ${MAX_FIGHTS}.`
+      );
+      if (!above.length) {
+        log(`Фаза ${battlePhase}: выше никого нет.`);
+        return;
+      }
+      log(
+        `Фаза ${battlePhase}: выше ${above.length}, свободны ${freeAbove.length}: ` +
+          above.map((user) => formatEnemyShort(user, fought)).join("; ")
+      );
+    }
+
     function isLiveBattleOpen() {
       return Boolean(core.shouldPauseBackgroundAutomation && core.shouldPauseBackgroundAutomation());
     }
@@ -5408,6 +5618,7 @@
         state.fightsAtSend = -1;
         state.nextBattleAt = 0;
         state.openingPlace = null;
+        state.loggedBattlePhase = null;
       }
       const me = getMyEntry();
       if (me && state.openingPlace == null && me.place != null) {
@@ -5475,10 +5686,19 @@
 
     function pickEnemy() {
       const me = getMyEntry();
-      const myPlace = Number(me?.place) || 0;
+      const rawPlace = Number(me?.place);
+      // Без валидного места раньше было || 0 → «выше» пусто и бил самого нижнего.
+      // Фоллбек 10: считаем себя последними и предпочитаем тех, кто выше.
+      const placeFallback = !Number.isFinite(rawPlace) || rawPlace <= 0;
+      const myPlace = placeFallback ? 10 : rawPlace;
       const pool = availableEnemies();
       if (!pool.length) return null;
+      if (placeFallback) {
+        log(`Место для выбора цели неверно (${me?.place}), считаю 10.`);
+      }
 
+      const fought = foughtEnemyIds();
+      const above = usersAboveMe(me);
       const lower = pool.filter((user) => Number(user.place) > myPlace);
       const higher = pool.filter((user) => Number(user.place) < myPlace);
       const equal = pool.filter((user) => Number(user.place) === myPlace);
@@ -5490,12 +5710,22 @@
         reason = lower.length
           ? `старт ${state.openingPlace}, первая атака ниже`
           : `старт ${state.openingPlace}, ниже нет, беру доступного`;
+      } else if (higher.length) {
+        candidates = higher;
+        reason = `бью выше за очки`;
+      } else if (equal.length) {
+        candidates = equal;
+        reason = `выше нет, беру равных`;
       } else {
-        candidates = higher.length ? higher : equal.length ? equal : lower;
-        reason = higher.length
-          ? `бью выше за очки`
-          : `выше нет, беру доступного`;
+        candidates = lower;
+        const aboveSummary = above.length
+          ? above.map((user) => formatEnemyShort(user, fought)).join("; ")
+          : "никого";
+        reason =
+          `выше нет (место ${myPlace}, выше: ${aboveSummary}), беру доступного`;
       }
+
+      if (!candidates.length) return null;
 
       candidates = candidates.slice().sort((a, b) => {
         const placeDiff = Number(b.place) - Number(a.place);
@@ -5886,6 +6116,7 @@
     function scan(source) {
       if (!isUserReady()) return;
       syncFights();
+      logPhaseRoster();
       noteTournamentResult();
       noteBattleClosed();
       if (state.autoEnabled) {
