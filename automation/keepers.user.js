@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Keepers Helper
 // @namespace    https://keepers.local/
-// @version      0.2.4
+// @version      0.3.4
 // @description		Automation of actions for the game Keepers
 // @description:en	Automation of actions for the game Keepers
 // @description:ru	Автоматизация рутинных действий в игре Keepers
@@ -16,7 +16,7 @@
 
   // Версия сборки. Должна совпадать с // @version в шапке.
   // PATCH — исправление, MINOR — новое поведение, MAJOR — ломающее изменение API или ключей хранения.
-  const VERSION = "0.2.4";
+  const VERSION = "0.3.4";
 
   const helper = {
     version: VERSION,
